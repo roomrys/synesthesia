@@ -1,0 +1,44 @@
+body {
+    background-color: rgb(188, 188, 220);
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 66vh;
+
+}
+
+.guitarNeck {
+    background-color: black;
+    height: 30vh;
+    width: 100vw;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between
+}
+
+.guitarFret {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.guitarNote {
+    /* Floor of 100% divided by 6 */
+    height: 16%;
+    width: 100%;
+    opacity: 0.25;
+}
+
+/* This will override more specific selectors like .selected.guitarNote */
+.guitarNote:hover {
+    opacity: 1 !important;
+}
+
+/* Since this has higher selectivity, it will override the .guitarNote (and default hover) */
+.selected.guitarNote {
+    opacity: 0.75;
+}

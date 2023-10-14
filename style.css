@@ -1,0 +1,25 @@
+body {
+    background-color: yellow;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 66vh;
+
+}
+
+.guitarNeck {
+    background-color: lightblue;
+    height: 30vh;
+    width: 100vw;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between
+}
+
+.guitarFret {
+    background-color: cadetblue;
+    height: 100%;
+    /* width: 4%; */
+}
