@@ -1,5 +1,5 @@
 body {
-    background-color: yellow;
+    background-color: rgb(188, 188, 220);
     margin: 0;
     display: flex;
     flex-direction: column;
@@ -10,7 +10,7 @@ body {
 }
 
 .guitarNeck {
-    background-color: lightblue;
+    background-color: black;
     height: 30vh;
     width: 100vw;
     display: flex;
@@ -19,7 +19,6 @@ body {
 }
 
 .guitarFret {
-    background-color: cadetblue;
     height: 100%;
     display: flex;
     flex-direction: column;
@@ -28,8 +27,12 @@ body {
 }
 
 .guitarNote {
-    background-color: darkblue;
     /* Floor of 100% divided by 6 */
     height: 16%;
     width: 100%;
+    opacity: 0.25;
+}
+
+.guitarNote:hover {
+    opacity: 1;
 }

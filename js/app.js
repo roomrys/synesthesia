@@ -1,3 +1,11 @@
+// TODO: Allow these to be configurable (and mapped to a frequency)
+const stringNames = ['stringHighE', 'stringB', 'stringG', 'stringD', 'stringA', 'stringLowE'];
+const stringStartingNotes = { stringHighE: 'E', stringB: 'B', stringG: 'G', stringD: 'D', stringA: 'A', stringLowE: 'E' };
+
+// TODO: Add note aliases (e.g. C# = Db)
+const noteNames = ['A', 'A#', 'B', 'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#'];
+const noteColors = { 'A': `rgb(255, 0, 0)`, 'A#': `rgb(255, 127, 0)`, 'B': `rgb(255, 255, 0)`, 'C': `rgb(127, 255, 0)`, 'C#': `rgb(0, 255, 0)`, 'D': `rgb(0, 255, 127)`, 'D#': `rgb(0, 255, 255)`, 'E': `rgb(0, 127, 255)`, 'F': `rgb(0, 0, 255)`, 'F#': `rgb(127, 0, 255)`, 'G': `rgb(255, 0, 255)`, 'G#': `rgb(255, 0, 127)` };
+
 const guitarNeckElement = document.querySelector('.guitarNeck');
 const numFretsToShow = 21;  // TODO: Make this based on innerWidth of window
 
@@ -9,6 +17,7 @@ for (let i = 0; i < numFretsToShow; i++) {
     // Add a guitarFretElement within the guitarNeckElement
     const guitarFretElement = document.createElement('div');
     guitarFretElement.classList.add('guitarFret');
+    guitarFretElement.classList.add(`fret${i + 1}`);
     guitarFretElement.style.width = `${widthOfFret}%`;
     guitarNeckElement.appendChild(guitarFretElement);
 
@@ -16,6 +25,20 @@ for (let i = 0; i < numFretsToShow; i++) {
     for (let j = 0; j < 6; j++) {
         const noteElement = document.createElement('div');
         noteElement.classList.add('guitarNote');
+
+        // Add class for string name
+        stringName = stringNames[j];
+        noteElement.classList.add(stringName);
+
+        // Add class for note name
+        openNote = stringStartingNotes[stringName];
+        fretNoteIndex = noteNames.indexOf(openNote) + i + 1;
+        fretNote = noteNames[fretNoteIndex % noteNames.length];
+        noteElement.classList.add(`note${fretNote}`);
+
+        // Set background color
+        noteElement.style.backgroundColor = noteColors[fretNote];
+
         guitarFretElement.appendChild(noteElement);
     }
 
