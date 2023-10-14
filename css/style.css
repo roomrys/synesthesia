@@ -33,6 +33,12 @@ body {
     opacity: 0.25;
 }
 
+/* This will override more specific selectors like .selected.guitarNote */
 .guitarNote:hover {
-    opacity: 1;
+    opacity: 1 !important;
+}
+
+/* Since this has higher selectivity, it will override the .guitarNote (and default hover) */
+.selected.guitarNote {
+    opacity: 0.75;
 }
