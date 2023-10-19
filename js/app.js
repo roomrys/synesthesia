@@ -8,6 +8,7 @@ const noteColors = { 'A': `rgb(255, 0, 0)`, 'ASharp': `rgb(255, 127, 0)`, 'B': `
 
 const guitarNeckElement = document.querySelector('.guitarNeck');
 const numFretsToShow = 21;  // TODO: Make this based on innerWidth of window
+const markedFretIndices = [3, 5, 7, 9, 12, 15, 17, 19];
 
 // Calculate width of fret in percentage
 const widthOfFret = Math.floor(100 / numFretsToShow);
@@ -18,6 +19,9 @@ for (let i = 0; i < numFretsToShow; i++) {
     const guitarFretElement = document.createElement('div');
     guitarFretElement.classList.add('guitarFret');
     guitarFretElement.classList.add(`fret${i + 1}`);
+    if (markedFretIndices.includes(i + 1)) {
+        guitarFretElement.classList.add('markedFret');
+    }
     guitarFretElement.style.width = `${widthOfFret}%`;
     guitarNeckElement.appendChild(guitarFretElement);
 
