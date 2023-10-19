@@ -25,8 +25,14 @@ document.addEventListener('keydown', event => {
             break;
         case "KeyB":
             // B key (only has B notes)
-            const bNotes = document.querySelectorAll('.noteB');
-            toggleSelectedNotes(bNotes);
+            if (event.shiftKey) {
+                // C notes
+                const cNotes = document.querySelectorAll('.noteC');
+                toggleSelectedNotes(cNotes);
+            } else {
+                const bNotes = document.querySelectorAll('.noteB');
+                toggleSelectedNotes(bNotes);
+            }
             break;
         case "KeyC":
             // C key
@@ -54,8 +60,14 @@ document.addEventListener('keydown', event => {
             break;
         case "KeyE":
             // E key (only has E notes)
-            const eNotes = document.querySelectorAll('.noteE');
-            toggleSelectedNotes(eNotes);
+            if (event.shiftKey) {
+                // F notes
+                const fNotes = document.querySelectorAll('.noteF');
+                toggleSelectedNotes(fNotes);
+            } else {
+                const eNotes = document.querySelectorAll('.noteE');
+                toggleSelectedNotes(eNotes);
+            }
             break;
         case "KeyF":
             // F key

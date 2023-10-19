@@ -45,6 +45,11 @@ function removeNoteFromLegend(noteText) {
 }
 
 function addNoteToLegend(noteText) {
+    // Check that the noteText is valid
+    if (noteText === null) {
+        return;
+    }
+
     const legendElement = document.querySelector('.legend');
 
     // Check if note is already in legend
