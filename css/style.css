@@ -39,11 +39,20 @@ body {
     height: 16%;
     width: 100%;
     opacity: 0.25;
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
 /* This will override more specific selectors like .selected.guitarNote */
 .guitarNote:hover {
     opacity: 1 !important;
+}
+
+.guitarNote:hover::before {
+    content: attr(data-note);
+    text-align: center;
+    font-size: 1rem;
 }
 
 /* Since this has higher selectivity, it will override the .guitarNote (and default hover) */
