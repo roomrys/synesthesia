@@ -18,7 +18,11 @@ const noteNamesWithSharpAsHash = {
     'G': 'G',
     'GSharp': 'G#'
 };
-const noteColors = { 'A': `rgb(255, 0, 0)`, 'ASharp': `rgb(255, 127, 0)`, 'B': `rgb(255, 255, 0)`, 'C': `rgb(127, 255, 0)`, 'CSharp': `rgb(0, 255, 0)`, 'D': `rgb(0, 255, 127)`, 'DSharp': `rgb(0, 255, 255)`, 'E': `rgb(0, 127, 255)`, 'F': `rgb(0, 0, 255)`, 'FSharp': `rgb(127, 0, 255)`, 'G': `rgb(255, 0, 255)`, 'GSharp': `rgb(255, 0, 127)` };
+const noteNamesWithHashAsSharp = {};
+for (const key in noteNamesWithSharpAsHash) {
+    const value = noteNamesWithSharpAsHash[key];
+    noteNamesWithHashAsSharp[value] = key;
+};
 
 const guitarNeckElement = document.querySelector('.guitarNeck');
 const numFretsToShow = 21;  // TODO: Make this based on innerWidth of window
@@ -55,9 +59,6 @@ for (let i = 0; i < numFretsToShow; i++) {
         fretNoteText = noteNamesWithSharpAsHash[fretNote];
         noteElement.classList.add(`note${fretNote}`);
         noteElement.setAttribute('data-note', fretNoteText);
-
-        // Set background color
-        noteElement.style.backgroundColor = noteColors[fretNote];
 
         guitarFretElement.appendChild(noteElement);
     }

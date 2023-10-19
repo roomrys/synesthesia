@@ -1,5 +1,6 @@
 :root {
     --guitar-neck-height: 30vh;
+    --num-frets: 21;
 }
 
 body {
@@ -8,9 +9,36 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: space-between;
     height: 66vh;
 
+}
+
+.aboveNeckContainer {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    width: 100vw;
+    height: var(--guitar-neck-height);
+}
+
+.legend {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: calc(100% / var(--num-frets));
+    height: 100%;
+    flex-grow: 1;
+}
+
+.legendNote {
+    height: 50%;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
 .guitarNeck {
@@ -58,4 +86,52 @@ body {
 /* Since this has higher selectivity, it will override the .guitarNote (and default hover) */
 .selected.guitarNote {
     opacity: 0.75;
+}
+
+.noteA {
+    background-color: red;
+}
+
+.noteASharp {
+    background-color: rgb(255, 127, 0);
+}
+
+.noteB {
+    background-color: rgb(255, 255, 0);
+}
+
+.noteC {
+    background-color: rgb(127, 255, 0);
+}
+
+.noteCSharp {
+    background-color: rgb(0, 255, 0);
+}
+
+.noteD {
+    background-color: rgb(0, 255, 127);
+}
+
+.noteDSharp {
+    background-color: rgb(0, 255, 255);
+}
+
+.noteE {
+    background-color: rgb(0, 127, 255);
+}
+
+.noteF {
+    background-color: rgb(0, 0, 255);
+}
+
+.noteFSharp {
+    background-color: rgb(127, 0, 255);
+}
+
+.noteG {
+    background-color: rgb(255, 0, 255);
+}
+
+.noteGSharp {
+    background-color: rgb(255, 0, 127);
 }

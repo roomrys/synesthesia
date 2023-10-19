@@ -6,6 +6,7 @@ document.addEventListener('keydown', event => {
             selectedNotes.forEach(noteElement => {
                 noteElement.classList.remove('selected');
             });
+            removeAllNotesFromLegend();
             break;
 
         // TODO: Toggling selected notes doesn't take into account already selected notes
@@ -97,9 +98,20 @@ function toggleSelectedNotes(notes) {
         if (isSelected) {
             // if any of the notes are already selected, deselect all
             noteElement.classList.remove('selected');
+            const noteText = noteElement.getAttribute('data-note');
+            removeNoteFromLegend(noteText);
         } else {
             // if none of the notes are already selected, select all
             noteElement.classList.add('selected');
+            const noteText = noteElement.getAttribute('data-note');
+            addNoteToLegend(noteText);
         }
+    });
+}
+
+function removeAllNotesFromLegend() {
+    const legendNoteElements = document.querySelectorAll('.legendNote');
+    legendNoteElements.forEach(legendNoteElement => {
+        legendNoteElement.remove();
     });
 }
