@@ -2,7 +2,7 @@ document.addEventListener('keydown', event => {
     switch (event.code) {
         case "Backspace":
             // Delete key
-            const selectedNotes = document.querySelectorAll('.selected');
+            var selectedNotes = document.querySelectorAll('.selected');
             selectedNotes.forEach(noteElement => {
                 noteElement.classList.remove('selected');
             });
@@ -93,6 +93,16 @@ document.addEventListener('keydown', event => {
                 toggleSelectedNotes(gNotes);
             }
             break;
+        case "ArrowLeft":
+            // Left arrow key
+            selectShiftedFretNotes(getCurrentFretAndFretToTheLeft);
+            updateLegend();
+            break;
+        case "ArrowRight":
+            // Left arrow key
+            selectShiftedFretNotes(getCurrentFretAndFretToTheRight);
+            updateLegend();
+            break;
     }
 });
 
@@ -121,9 +131,74 @@ function toggleSelectedNotes(notes) {
     });
 }
 
+function updateLegend() {
+    removeAllNotesFromLegend();
+    const selectedNoteElements = document.querySelectorAll('.selected');
+    selectedNoteElements.forEach(selectedNoteElement => {
+        const noteText = selectedNoteElement.getAttribute('data-note');
+        addNoteToLegend(noteText);
+    });
+}
+
 function removeAllNotesFromLegend() {
     const legendNoteElements = document.querySelectorAll('.legendNote');
     legendNoteElements.forEach(legendNoteElement => {
         legendNoteElement.remove();
     });
+}
+
+
+function selectShiftedFretNotes(getCurrentFretAndFretToSelect) {
+    // Shift all the selected notes to the left
+    // Deselect all the selected notes and select the notes in the same index one container to the left
+    selectedNotes = document.querySelectorAll('.selected');
+    selectedNotes.forEach(noteElement => {
+        // Deselect the current note
+        noteElement.classList.remove('selected');
+        var { noteElementParent: fretCurrent, noteElementParentSibling: fretToSelect } = getCurrentFretAndFretToSelect(noteElement);
+
+        // Get the note at the same index in the previous container
+        const index = Array.from(fretCurrent.children).indexOf(noteElement);
+        const newNote = fretToSelect.children[index];
+
+        // If there is a note at the same index in the previous container
+        if (newNote !== undefined) {
+            // Select the note
+            newNote.classList.add('selected');
+        }
+    });
+}
+
+
+function getCurrentFretAndFretToTheLeft(noteElement) {
+    // Get the previous container
+    const noteElementParent = noteElement.parentElement;
+    let noteElementParentSibling = noteElementParent.previousElementSibling;
+
+    // If there is no previous container, select the last container
+    if (noteElementParentSibling === null) {
+        noteElementParentSibling = noteElementParent.parentElement.lastElementChild;
+    }
+
+    return {
+        noteElementParent,
+        noteElementParentSibling
+    };
+}
+
+
+function getCurrentFretAndFretToTheRight(noteElement) {
+    // Get the next container
+    const noteElementParent = noteElement.parentElement;
+    let noteElementParentSibling = noteElementParent.nextElementSibling;
+
+    // If there is no next container, select the first container
+    if (noteElementParentSibling === null) {
+        noteElementParentSibling = noteElementParent.parentElement.firstElementChild;
+    }
+
+    return {
+        noteElementParent,
+        noteElementParentSibling
+    };
 }
