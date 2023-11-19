@@ -98,6 +98,11 @@ document.addEventListener('keydown', event => {
             selectShiftedFretNotes(getCurrentFretAndFretToTheLeft);
             updateLegend();
             break;
+        case "ArrowRight":
+            // Left arrow key
+            selectShiftedFretNotes(getCurrentFretAndFretToTheRight);
+            updateLegend();
+            break;
     }
 });
 
@@ -150,7 +155,7 @@ function selectShiftedFretNotes(getCurrentFretAndFretToSelect) {
     selectedNotes.forEach(noteElement => {
         // Deselect the current note
         noteElement.classList.remove('selected');
-        var { noteElementParent: fretCurrent, noteElementParentPreviousSibling: fretToSelect } = getCurrentFretAndFretToSelect(noteElement);
+        var { noteElementParent: fretCurrent, noteElementParentSibling: fretToSelect } = getCurrentFretAndFretToSelect(noteElement);
 
         // Get the note at the same index in the previous container
         const index = Array.from(fretCurrent.children).indexOf(noteElement);
@@ -168,15 +173,32 @@ function selectShiftedFretNotes(getCurrentFretAndFretToSelect) {
 function getCurrentFretAndFretToTheLeft(noteElement) {
     // Get the previous container
     const noteElementParent = noteElement.parentElement;
-    let noteElementParentPreviousSibling = noteElementParent.previousElementSibling;
+    let noteElementParentSibling = noteElementParent.previousElementSibling;
 
     // If there is no previous container, select the last container
-    if (noteElementParentPreviousSibling === null) {
-        noteElementParentPreviousSibling = noteElementParent.parentElement.lastElementChild;
+    if (noteElementParentSibling === null) {
+        noteElementParentSibling = noteElementParent.parentElement.lastElementChild;
     }
 
     return {
         noteElementParent,
-        noteElementParentPreviousSibling
+        noteElementParentSibling
+    };
+}
+
+
+function getCurrentFretAndFretToTheRight(noteElement) {
+    // Get the next container
+    const noteElementParent = noteElement.parentElement;
+    let noteElementParentSibling = noteElementParent.nextElementSibling;
+
+    // If there is no next container, select the first container
+    if (noteElementParentSibling === null) {
+        noteElementParentSibling = noteElementParent.parentElement.firstElementChild;
+    }
+
+    return {
+        noteElementParent,
+        noteElementParentSibling
     };
 }
