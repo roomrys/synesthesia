@@ -2,7 +2,7 @@ document.addEventListener('keydown', event => {
     switch (event.code) {
         case "Backspace":
             // Delete key
-            const selectedNotes = document.querySelectorAll('.selected');
+            var selectedNotes = document.querySelectorAll('.selected');
             selectedNotes.forEach(noteElement => {
                 noteElement.classList.remove('selected');
             });
@@ -93,6 +93,36 @@ document.addEventListener('keydown', event => {
                 toggleSelectedNotes(gNotes);
             }
             break;
+        case "ArrowLeft":
+            // Left arrow key
+            // Shift all the selected notes to the left
+            // Deselect all the selected notes and select the notes in the same index one container to the left
+            selectedNotes = document.querySelectorAll('.selected');
+            selectedNotes.forEach(noteElement => {
+                // Deselect the current note
+                noteElement.classList.remove('selected');
+
+                // Get the previous container
+                const noteElementParent = noteElement.parentElement;
+                let noteElementParentPreviousSibling = noteElementParent.previousElementSibling;
+
+                // If there is no previous container, select the last container
+                if (noteElementParentPreviousSibling === null) {
+                    noteElementParentPreviousSibling = noteElementParent.parentElement.lastElementChild;
+                }
+
+                // Get the note at the same index in the previous container
+                const index = Array.from(noteElementParent.children).indexOf(noteElement);
+                const previousNote = noteElementParentPreviousSibling.children[index];
+
+                // If there is a note at the same index in the previous container
+                if (previousNote !== undefined) {
+                    // Select the note
+                    previousNote.classList.add('selected');
+                }
+            });
+            updateLegend();
+            break;
     }
 });
 
@@ -118,6 +148,15 @@ function toggleSelectedNotes(notes) {
             const noteText = noteElement.getAttribute('data-note');
             addNoteToLegend(noteText);
         }
+    });
+}
+
+function updateLegend() {
+    removeAllNotesFromLegend();
+    const selectedNoteElements = document.querySelectorAll('.selected');
+    selectedNoteElements.forEach(selectedNoteElement => {
+        const noteText = selectedNoteElement.getAttribute('data-note');
+        addNoteToLegend(noteText);
     });
 }
 
