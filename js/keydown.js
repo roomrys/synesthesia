@@ -152,9 +152,12 @@ function selectShiftedFretNotes(getCurrentFretAndFretToSelect) {
     // Shift all the selected notes to the left
     // Deselect all the selected notes and select the notes in the same index one container to the left
     selectedNotes = document.querySelectorAll('.selected');
+
+    // Deselect the current note
+    selectedNotes.forEach(noteElement => { noteElement.classList.remove('selected') });
+
+    // Select the note in the same index one container to the left
     selectedNotes.forEach(noteElement => {
-        // Deselect the current note
-        noteElement.classList.remove('selected');
         var { noteElementParent: fretCurrent, noteElementParentSibling: fretToSelect } = getCurrentFretAndFretToSelect(noteElement);
 
         // Get the note at the same index in the previous container
