@@ -93,14 +93,24 @@ document.addEventListener('keydown', event => {
                 toggleSelectedNotes(gNotes);
             }
             break;
+        case "KeyR":
+            // R key
+            // Reverse the direction of the fretboard
+            guitarNeckElement.classList.toggle('reverse');
         case "ArrowLeft":
             // Left arrow key
-            selectShiftedFretNotes(getCurrentFretAndFretToTheLeft);
+            // Check if guitarNeckElement has class 'reverse'
+            getCurrentFretAndFretToSelect = guitarNeckElement.classList.contains('reverse') ?
+                getCurrentFretAndHigherFret : getCurrentFretAndLowerFret
+            selectShiftedFretNotes(getCurrentFretAndFretToSelect);
             updateLegend();
             break;
         case "ArrowRight":
             // Left arrow key
-            selectShiftedFretNotes(getCurrentFretAndFretToTheRight);
+            // Check if guitarNeckElement has class 'reverse'
+            getCurrentFretAndFretToSelect = guitarNeckElement.classList.contains('reverse') ?
+                getCurrentFretAndLowerFret : getCurrentFretAndHigherFret
+            selectShiftedFretNotes(getCurrentFretAndFretToSelect);
             updateLegend();
             break;
     }
@@ -175,7 +185,7 @@ function selectShiftedFretNotes(getCurrentFretAndFretToSelect) {
 }
 
 
-function getCurrentFretAndFretToTheLeft(noteElement) {
+function getCurrentFretAndLowerFret(noteElement) {
     // Get the previous container
     let noteFret = noteElement.parentElement;
     let noteFretSiblings = [];  // Multiple siblings if the current fret is the 12th fret
@@ -203,7 +213,7 @@ function getCurrentFretAndFretToTheLeft(noteElement) {
 }
 
 
-function getCurrentFretAndFretToTheRight(noteElement) {
+function getCurrentFretAndHigherFret(noteElement) {
     // Get the next container
     let noteFret = noteElement.parentElement;
     let noteFretSiblings = [];  // Multiple siblings if the current fret is the 12th fret

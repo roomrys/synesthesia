@@ -59,6 +59,11 @@ body {
     justify-content: space-between
 }
 
+.guitarNeck.reverse {
+    flex-direction: row-reverse;
+    /* Reversed: right-to-left */
+}
+
 .guitarFret {
     height: 100%;
     display: flex;
