@@ -96,16 +96,21 @@ document.addEventListener('keydown', event => {
         case "KeyR":
             // R key
             // Reverse the direction of the fretboard
-            const guitarNeckElement = document.querySelector('.guitarNeck');
             guitarNeckElement.classList.toggle('reverse');
         case "ArrowLeft":
             // Left arrow key
-            selectShiftedFretNotes(getCurrentFretAndLowerFret);
+            // Check if guitarNeckElement has class 'reverse'
+            getCurrentFretAndFretToSelect = guitarNeckElement.classList.contains('reverse') ?
+                getCurrentFretAndHigherFret : getCurrentFretAndLowerFret
+            selectShiftedFretNotes(getCurrentFretAndFretToSelect);
             updateLegend();
             break;
         case "ArrowRight":
             // Left arrow key
-            selectShiftedFretNotes(getCurrentFretAndHigherFret);
+            // Check if guitarNeckElement has class 'reverse'
+            getCurrentFretAndFretToSelect = guitarNeckElement.classList.contains('reverse') ?
+                getCurrentFretAndLowerFret : getCurrentFretAndHigherFret
+            selectShiftedFretNotes(getCurrentFretAndFretToSelect);
             updateLegend();
             break;
     }
