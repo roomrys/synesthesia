@@ -158,7 +158,7 @@ function selectShiftedFretNotes(getCurrentFretAndFretToSelect) {
 
     // Select the note in the same index one container to the left
     selectedNotes.forEach(noteElement => {
-        var { noteElementParent: fretCurrent, noteElementParentSibling: fretToSelect } = getCurrentFretAndFretToSelect(noteElement);
+        var { noteFret: fretCurrent, noteFretSibling: fretToSelect } = getCurrentFretAndFretToSelect(noteElement);
 
         // Get the note at the same index in the previous container
         const index = Array.from(fretCurrent.children).indexOf(noteElement);
@@ -175,33 +175,36 @@ function selectShiftedFretNotes(getCurrentFretAndFretToSelect) {
 
 function getCurrentFretAndFretToTheLeft(noteElement) {
     // Get the previous container
-    const noteElementParent = noteElement.parentElement;
-    let noteElementParentSibling = noteElementParent.previousElementSibling;
+    const noteFret = noteElement.parentElement;
+    let noteFretSibling = noteFret.previousElementSibling;
 
     // If there is no previous container, select the last container
-    if (noteElementParentSibling === null) {
-        noteElementParentSibling = noteElementParent.parentElement.lastElementChild;
+    if (noteFretSibling === null) {
+        noteFretSibling = noteFret.parentElement.lastElementChild;
     }
 
     return {
-        noteElementParent,
-        noteElementParentSibling
+        noteFret,
+        noteFretSibling
     };
 }
 
 
 function getCurrentFretAndFretToTheRight(noteElement) {
     // Get the next container
-    const noteElementParent = noteElement.parentElement;
-    let noteElementParentSibling = noteElementParent.nextElementSibling;
+    const noteFret = noteElement.parentElement;
+    let noteFretSibling = noteFret.nextElementSibling;
 
-    // If there is no next container, select the first container
-    if (noteElementParentSibling === null) {
-        noteElementParentSibling = noteElementParent.parentElement.firstElementChild;
+    // If there is no next container, select the first container and update the "current" fret
+    if (noteFretSibling === null) {
+        noteFretSibling = noteFret.parentElement.firstElementChild;
+        // TODO(LM): Take the currentFretNum % numFretsToShow to get the correct current fret
+        // Get the current fret number
+
     }
 
     return {
-        noteElementParent,
-        noteElementParentSibling
+        noteFret: noteFret,
+        noteFretSibling: noteFretSibling
     };
 }
