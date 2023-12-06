@@ -158,53 +158,75 @@ function selectShiftedFretNotes(getCurrentFretAndFretToSelect) {
 
     // Select the note in the same index one container to the left
     selectedNotes.forEach(noteElement => {
-        var { noteFret: fretCurrent, noteFretSibling: fretToSelect } = getCurrentFretAndFretToSelect(noteElement);
+        var { noteFret: fretCurrent, noteFretSiblings: fretsToSelect } = getCurrentFretAndFretToSelect(noteElement);
 
         // Get the note at the same index in the previous container
         const index = Array.from(fretCurrent.children).indexOf(noteElement);
-        const newNote = fretToSelect.children[index];
+        fretsToSelect.forEach(fretToSelect => {
+            const newNote = fretToSelect.children[index];
 
-        // If there is a note at the same index in the previous container
-        if (newNote !== undefined) {
-            // Select the note
-            newNote.classList.add('selected');
-        }
+            // If there is a note at the same index in the previous container
+            if (newNote !== undefined) {
+                // Select the note
+                newNote.classList.add('selected');
+            }
+        });
     });
 }
 
 
 function getCurrentFretAndFretToTheLeft(noteElement) {
     // Get the previous container
-    const noteFret = noteElement.parentElement;
-    let noteFretSibling = noteFret.previousElementSibling;
+    let noteFret = noteElement.parentElement;
+    let noteFretSiblings = [];  // Multiple siblings if the current fret is the 12th fret
 
-    // If there is no previous container, select the last container
-    if (noteFretSibling === null) {
-        noteFretSibling = noteFret.parentElement.lastElementChild;
+    // Get one fret to the left
+    let noteFretSibling = noteFret.previousElementSibling;
+    if (noteFretSibling !== null) {
+        // If there is a previous fret, then append it to the list of siblings
+        noteFretSiblings.push(noteFretSibling);
+    }
+
+    const guitarNeck = noteFret.parentElement;
+
+    // If the current fret is the 1st fret, then shift note to the 11th fret
+    if (Array.from(guitarNeck.children).indexOf(noteFret) === 0) {
+        // Get 12th fret and append it to the list of siblings
+        noteFretSibling = guitarNeck.children[11];
+        noteFretSiblings.push(noteFretSibling);
     }
 
     return {
-        noteFret,
-        noteFretSibling
+        noteFret: noteFret,
+        noteFretSiblings: noteFretSiblings
     };
 }
 
 
 function getCurrentFretAndFretToTheRight(noteElement) {
     // Get the next container
-    const noteFret = noteElement.parentElement;
-    let noteFretSibling = noteFret.nextElementSibling;
+    let noteFret = noteElement.parentElement;
+    let noteFretSiblings = [];  // Multiple siblings if the current fret is the 12th fret
 
-    // If there is no next container, select the first container and update the "current" fret
-    if (noteFretSibling === null) {
-        noteFretSibling = noteFret.parentElement.firstElementChild;
-        // TODO(LM): Take the currentFretNum % numFretsToShow to get the correct current fret
-        // Get the current fret number
+    // Get one fret to the right
+    let noteFretSibling = noteFret.nextElementSibling;
+    if (noteFretSibling !== null) {
+        //  If there is a next fret, then append it to the list of siblings
+        noteFretSiblings.push(noteFretSibling);
+    }
+
+    const guitarNeck = noteFret.parentElement;
+
+    // If the current fret is the 12th fret, then shift note to both the 13th and 1st frets
+    if (Array.from(guitarNeck.children).indexOf(noteFret) === 11) {
+        // Get 1st fret and append it to the list of siblings
+        noteFretSibling = guitarNeck.firstElementChild;
+        noteFretSiblings.push(noteFretSibling);
 
     }
 
     return {
         noteFret: noteFret,
-        noteFretSibling: noteFretSibling
+        noteFretSiblings: noteFretSiblings
     };
 }
