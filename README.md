@@ -1,7 +1,5 @@
 # [synesthesia](https://roomrys.github.io/synesthesia)
-Learn to visualize frequencies.
+Shred without the needing to memorize scales.
 _https://roomrys.github.io/synesthesia_
 
-Synesthesia aims to provide visual descriptions of the frequencies that are being played by:
-1. Coloring the background to the color of the loudest tone being played
-2. Displaying notes on instruments in color for your own visual verification
+Synesthesia allows users to highlight all notes that they want to include while soloing in a guitar-hero-esk style. Great for beginners who don't yet have scales memorized.
