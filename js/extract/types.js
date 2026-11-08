@@ -35,7 +35,8 @@
  * @property {Note[]} notes   Sorted by start.
  * @property {{minMidi: number, maxMidi: number}} range
  * @property {{id: string, options: Object}} extractor
- * @property {PitchTrack} [pitchTrack]
+ * @property {PitchTrack} [pitchTrack]  Extractors may add extra per-frame arrays (e.g. YIN's candidateMidi, aperiodicity, loudness).
+ * @property {Object} [stats]            Extractor-specific counts for debugging (e.g. why frames were rejected).
  */
 
 /** Make an AudioClip from mono samples. */

@@ -5,6 +5,7 @@
 //   {
 //     id, name, description,
 //     defaults: { ...extractor-specific options },
+//     settings?: [{ key, label, min, max, step, format?(value), help? }],  // tunable on the page
 //     async extract(clip, { minMidi, maxMidi, options, onProgress, signal }) -> NoteSet
 //   }
 //

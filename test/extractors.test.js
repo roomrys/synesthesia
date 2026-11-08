@@ -58,6 +58,15 @@ for (const id of Object.keys(registry.extractor)) {
         assertEqual(range.minMidi, 57);
     });
 
+    test(`extractor ${id}: notes just outside the range aren't misread as another octave`, async () => {
+        const above = clipOf(sequence([{ midi: 67, seconds: 0.5 }], 48000, { harmonics: GUITARISH }));
+        const r1 = await runExtractor(await get(), above, { minMidi: 40, maxMidi: 65 });
+        assertEqual(names(r1.notes), '', 'G4 with range up to F4:');
+        const below = clipOf(sequence([{ midi: 45, seconds: 0.5 }], 48000, { harmonics: GUITARISH }));
+        const r2 = await runExtractor(await get(), below, { minMidi: 50, maxMidi: 88 });
+        assertEqual(names(r2.notes), '', 'A2 with range from D3:');
+    });
+
     test(`extractor ${id}: reports progress and can be cancelled`, async () => {
         const clip = clipOf(sequence([{ midi: 69, seconds: 3 }]));
         let last = 0;
@@ -66,6 +75,16 @@ for (const id of Object.keys(registry.extractor)) {
         const controller = new AbortController();
         controller.abort();
         await assertRejects(runExtractor(await get(), clip, { signal: controller.signal }), (e) => e.name === 'AbortError');
+    });
+
+    test(`extractor ${id}: settings describe real options with defaults in range`, async () => {
+        const impl = await get();
+        for (const s of impl.settings ?? []) {
+            assert(s.key in impl.defaults, `setting ${s.key} has no default`);
+            const v = impl.defaults[s.key];
+            assert(v >= s.min && v <= s.max, `default ${s.key}=${v} outside ${s.min}..${s.max}`);
+            assert(s.label && s.step > 0, `setting ${s.key} needs a label and step`);
+        }
     });
 
     test(`extractor ${id}: velocities and confidences are in 0..1`, async () => {
