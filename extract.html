@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Synesthesia · Note extractor</title>
+    <link rel="stylesheet" href="css/extract.css">
+    <link rel="icon" type="image/png" href="images/favicon.png">
+
+    <script defer src="https://cloud.umami.is/script.js"
+        data-website-id="bfe63826-fbe6-4559-9060-8c4404b1e44d"></script>
+</head>
+
+<body>
+    <header>
+        <a href="index.html" class="back">← Fretboard</a>
+        <h1>Note extractor</h1>
+        <span class="tag">experimental</span>
+    </header>
+
+    <main>
+        <section class="panel" id="audioPanel">
+            <h2><span class="step">1</span> Audio</h2>
+            <div class="row" id="sourceButtons"></div>
+            <div class="row" id="liveControls" hidden>
+                <button id="stopButton" class="primary">Stop</button>
+                <span class="listening"><span class="dot"></span> Listening <span id="elapsed">0:00</span></span>
+                <meter id="level" min="0" max="1" low="0.6" high="0.9" optimum="0.3" value="0"></meter>
+            </div>
+            <p class="hint" id="sourceHint"></p>
+            <div class="row" id="clipRow" hidden>
+                <span id="clipInfo"></span>
+                <button id="clearButton">Clear audio</button>
+            </div>
+            <p class="status" id="audioStatus" role="status"></p>
+        </section>
+
+        <section class="panel" id="notesPanel">
+            <h2><span class="step">2</span> Notes</h2>
+            <div class="row">
+                <label>Detector <select id="extractorSelect"></select></label>
+                <label>Lowest note <select id="minNote"></select></label>
+                <label>Highest note <select id="maxNote"></select></label>
+                <button id="extractButton" class="primary" disabled>Find notes</button>
+                <button id="cancelButton" hidden>Cancel</button>
+                <progress id="progress" max="1" value="0" hidden></progress>
+            </div>
+            <p class="hint" id="extractorHint"></p>
+            <p class="status" id="notesStatus" role="status"></p>
+        </section>
+
+        <section class="panel" id="timelinePanel">
+            <h2><span class="step">3</span> Check and crop</h2>
+            <canvas id="timeline"></canvas>
+            <div class="row transport">
+                <button id="playButton" disabled title="Space">▶ Play</button>
+                <button id="playCropButton" disabled>Play crop</button>
+                <span class="time" id="timeDisplay">0:00.0</span>
+                <label>Song <input type="range" id="songVolume" min="0" max="1" step="0.01" value="0.8"></label>
+                <label>Notes <input type="range" id="notesVolume" min="0" max="1" step="0.01" value="0.8"></label>
+                <label class="check"><input type="checkbox" id="followPlayhead" checked> Follow</label>
+            </div>
+            <div class="row">
+                <span>Crop <span class="time" id="cropDisplay">–</span></span>
+                <button id="cropStartButton" disabled title="[">Start here</button>
+                <button id="cropEndButton" disabled title="]">End here</button>
+                <button id="cropResetButton" disabled>Reset</button>
+            </div>
+            <p class="hint">Scroll to zoom, drag to pan, click to jump. Drag the yellow handles, or press
+                <kbd>[</kbd> and <kbd>]</kbd> to set the crop at the playhead. <kbd>Space</kbd> plays and pauses.</p>
+        </section>
+
+        <section class="panel" id="savePanel">
+            <h2><span class="step">4</span> Save</h2>
+            <div class="row">
+                <label>Name <input type="text" id="titleInput" placeholder="my-song" spellcheck="false"></label>
+                <button id="saveButton" class="primary" disabled>Save notes</button>
+                <button id="loadButton">Open notes file…</button>
+            </div>
+            <div class="row" id="folderRow" hidden>
+                <span>Saving to <strong id="folderName">a folder you choose</strong></span>
+                <button id="folderButton">Choose folder…</button>
+            </div>
+            <p class="status" id="saveStatus" role="status"></p>
+        </section>
+
+        <p class="privacy">Audio stays in this page's memory and is never saved or uploaded. Only the notes are saved.</p>
+    </main>
+
+    <script type="module" src="js/extract/main.js"></script>
+</body>
+
+</html>

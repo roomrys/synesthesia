@@ -129,21 +129,29 @@ Produces an `AudioClip`.
 ```js
 {
   id, name,
+  kind: 'live' | 'file',
+  startLabel?: string,                  // button text
+  hint?: string,                        // shown under the buttons
   isSupported(): boolean,
-  start({ onLevel }): Promise<void>,   // begin capturing into memory (live sources)
-  stop(): Promise<AudioClip>,          // stop and return the clip
-  open?(file: File): Promise<AudioClip> // file sources
+
+  // kind: 'live'
+  start({ onLevel, onEnded }): Promise<void>,  // begin capturing into memory
+  stop(): Promise<AudioClip>,                  // stop and return the clip
+
+  // kind: 'file'
+  accept?: string,                      // file picker filter, e.g. 'audio/*'
+  open(file: File): Promise<AudioClip>,
 }
 ```
 
 | id | Status | Notes |
 |---|---|---|
-| `tab` | 🚧 | Audio from another browser tab via `getDisplayMedia` (Chrome/Edge). |
+| `tab` | 🚧 | Audio from another browser tab via `getDisplayMedia` (Chrome/Edge). Built; needs testing by hand (it can't run headless). |
+| `file` | ✅ | Decodes a local audio file with `decodeAudioData`. |
 | `mic` | 📝 | `getUserMedia`, with echo cancellation, noise suppression and auto-gain turned off. |
-| `file` | 📝 | Decodes a local audio file with `decodeAudioData`. |
 
-Live sources collect raw samples with an `AudioWorklet` (`capture-worklet.js`)
-and mix them down to mono.
+Live sources share `sources/live.js`, which collects raw samples with an
+`AudioWorklet` (`capture-worklet.js`) and mixes them down to mono.
 
 ### Extractor 🚧
 Turns audio into notes.
@@ -167,7 +175,7 @@ output, filters to the requested range and sorts the notes.
 
 | id | Status | Notes |
 |---|---|---|
-| `yin` | 🚧 | Our own YIN implementation. One note at a time; best on a single voice or instrument. |
+| `yin` | ✅ | Our own YIN implementation. One note at a time; best on a single voice or instrument. |
 | `pitchy` | 📝 | McLeod pitch method via [pitchy](https://github.com/ianprime0509/pitchy) (MIT). |
 | `basic-pitch` | 📝 | Spotify's [Basic Pitch](https://github.com/spotify/basic-pitch-ts) (Apache-2.0). Handles chords; better on full mixes. |
 
@@ -187,7 +195,10 @@ Plays notes so you can check a transcription by ear.
 
 | id | Status | Notes |
 |---|---|---|
-| `tone` | 🚧 | [Tone.js](https://tonejs.github.io) (MIT) polyphonic synth, using our `AudioContext`. |
+| `tone` | ✅ | [Tone.js](https://tonejs.github.io) (MIT) synths on our `AudioContext`. Uses a pool of `Tone.Synth` voices rather than `Tone.PolySynth`, because PolySynth delays future notes with a JavaScript timer instead of scheduling them on the audio clock. |
+
+The player schedules notes about 200 ms ahead in a loop, so a voice only ever
+sees near-future notes, and `stopAll()` takes effect straight away.
 
 ### Codec 🚧
 Converts between a `NoteSet` and a file.
@@ -202,7 +213,7 @@ Converts between a `NoteSet` and a file.
 
 | id | Status | Notes |
 |---|---|---|
-| `json` | 🚧 | The Synesthesia note file, below. Human-readable, keeps confidence and extractor settings. |
+| `json` | ✅ | The Synesthesia note file, below. Human-readable, keeps confidence and extractor settings. |
 | `midi` | 📝 | Standard MIDI file, read and write. Lets the fretboard load any MIDI file. |
 
 ### Storage 🚧
@@ -212,15 +223,17 @@ Saves and opens note files.
 {
   id, name,
   isSupported(): boolean,
-  save(filename: string, blob: Blob): Promise<void>,
-  open(): Promise<File>,
+  save(filename: string, blob: Blob): Promise<{ filename, location }>,  // never overwrites
+  open({ accept }): Promise<File>,
+  folderName?(): Promise<string | null>,   // storages with a remembered folder
+  pickFolder?(): Promise<string>,
 }
 ```
 
 | id | Status | Notes |
 |---|---|---|
-| `folder` | 🚧 | File System Access API (Chrome/Edge). You choose a folder once (we suggest `Documents/Synesthesia`). The page remembers it in IndexedDB and saves there by default. |
-| `download` | 🚧 | Fallback for other browsers: a normal download, and a file picker to open. |
+| `folder` | 🚧 | File System Access API (Chrome/Edge). You choose a folder once (we suggest `Documents/Synesthesia`). The page remembers it in IndexedDB, saves there, and opens files from there by default. If a name is taken it saves as `name-2`, and so on. Built; needs testing by hand. |
+| `download` | 🚧 | Fallback for other browsers: a normal download, and a file picker to open. Built; needs testing by hand. |
 
 A web page can't write to a fixed path such as `~/.synesthesia`, so the user
 picks the folder once.
@@ -233,7 +246,8 @@ picks the folder once.
 
 ```js
 export const registry = {
-  source:    { tab: () => import('./sources/tab.js') },
+  source:    { tab: () => import('./sources/tab.js'),
+               file: () => import('./sources/file.js') },
   extractor: { yin: () => import('./extractors/yin.js') },
   voice:     { tone: () => import('./voices/tone.js') },
   codec:     { json: () => import('./codecs/json.js') },
@@ -246,27 +260,33 @@ export const registry = {
 
 ```js
 export const config = {
-  source: ['tab'],
+  sources: ['tab', 'file'],          // every supported one is offered on the page
   extractor: 'yin',
   voice: 'tone',
   codec: 'json',
-  storage: ['folder', 'download'],   // a list means "first one that isSupported()"
+  storage: ['folder', 'download'],   // fallback list: first one that isSupported()
 };
 ```
+
+Code gets implementations with `load(kind)` (one, honouring fallback lists) or
+`loadAll('source')` (all supported). `loadImpl(kind, id)` loads a specific one
+and checks it has the interface's required members.
 
 - **Swap:** edit `config.js`.
 - **Add:** add a module and one registry line.
 - **Override per visit:** query parameters override the config, e.g.
-  `extract.html?extractor=pitchy`, for comparing implementations.
+  `extract.html?extractor=pitchy` or `?sources=file`, for comparing implementations.
 - **Lazy loading:** modules that aren't selected are never fetched, so an unused
-  library costs nothing.
+  library costs nothing. (The extractor dropdown lists every registered
+  extractor, so those are loaded.)
 
 ---
 
 ## Note file format (JSON, version 1)
 
-Saved as `<title>.synesthesia.json`. Times are in seconds, relative to the crop
-start.
+Saved as `<title>.synesthesia`. The contents are plain JSON; the extension is kept
+short because browser file pickers reject extensions over 16 characters. The open
+dialog also accepts `.json`. Times are in seconds, relative to the crop start.
 
 ```json
 {
@@ -307,30 +327,46 @@ js/
     types.js               shared data types (JSDoc)
     dsp.js                 resampling, RMS                     (pure)
     music.js               MIDI ↔ name, note colours           (pure)
+    noteset.js             sort, range filter, crop            (pure)
     player.js              song + voice playback on one clock
     timeline.js            canvas: waveform, piano roll, crop, playhead
     capture-worklet.js     AudioWorklet for live sources
-    sources/               tab.js, mic.js, file.js
+    sources/               live.js (shared), tab.js, file.js
     extractors/            index.js (runExtractor), yin.js     (pure)
     voices/                tone.js
     codecs/                json.js                             (pure)
     storage/               folder.js, download.js
 test/
-  *.test.mjs               Node tests (node --test)
+  run.html                 browser test page
+  run-headless.sh          runs run.html in headless Chrome and prints results
+  runner.js, signals.js    tiny test runner, synthetic audio
+  *.test.js                tests
 ```
 
 ---
 
 ## Testing
 
-- **Contract tests** (`node --test`): one suite per interface, run against every
-  registered implementation of the pure kinds. For example, every extractor must
-  turn a synthetic 440 Hz tone into `A4` with the right timing, ignore silence,
-  and respect the range. Every codec must round-trip a `NoteSet`
-  (`decode(encode(x))` equals `x`).
-- **By ear:** play the detected notes over the song in the extractor page.
-- **Round trip:** save a note file, load it back in the extractor, and play it
-  over the song.
+Tests run **in the browser**, with no Node and no build step. They import the
+same modules the page uses, and the browser provides Web Audio (resampling,
+decoding, offline rendering), which Node lacks.
+
+```sh
+test/run-headless.sh          # headless Chrome, prints results, non-zero exit on failure
+# or serve the repo and open http://localhost:8000/test/run.html
+```
+
+- **Contract tests:** one suite per interface, run against every registered
+  implementation. Every extractor must turn a synthetic 440 Hz tone into `A4`
+  with the right timing, get a low E with harmonics right (no octave error),
+  split a repeated note, ignore silence, respect the range, report progress and
+  support cancelling. Every codec must round-trip a `NoteSet`. Every voice must
+  make sound at the scheduled time (rendered offline), including chords.
+- **End to end:** `page.test.js` loads `extract.html` in an iframe, opens a
+  generated WAV file, and checks that notes are found and playback runs.
+- **By hand:** tab capture and the save folder need real browser permission
+  prompts, so check those by hand. Play the detected notes over the song to judge
+  them by ear, and save and reopen a note file to check the round trip.
 
 ---
 
@@ -358,11 +394,13 @@ python3 -m http.server 8000
 
 ## Roadmap
 
-1. 🚧 **Extract and save:** tab source, YIN extractor, timeline with playback of
-   song plus detected notes, crop, save JSON, load JSON back to check it.
-2. 📝 **Note range filter in the UI:** low and high note controls, live in the
-   piano roll.
-3. 📝 **More sources and extractors:** mic, audio file, pitchy, Basic Pitch.
+1. 🚧 **Extract and save:** tab and file sources, YIN extractor, timeline with
+   playback of song plus detected notes, crop, save JSON, load JSON back to check
+   it. Built and tested headless; tab capture and saving still need testing by hand.
+2. 🚧 **Note range filter in the UI:** basic low and high note controls exist.
+   Still to do: presets (guitar, voice, bass), and re-filtering without
+   re-running extraction.
+3. 📝 **More sources and extractors:** mic, pitchy, Basic Pitch.
 4. 📝 **Fretboard integration:** load note files (JSON and MIDI) into
    `index.html`, map notes to string and fret positions, and replay them in time
    (play, pause, scrub). Start by lighting every position of each note, then add

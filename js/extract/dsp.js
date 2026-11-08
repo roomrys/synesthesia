@@ -1,0 +1,67 @@
+// Small DSP helpers. Pure functions apart from resampleFast(), which uses
+// OfflineAudioContext when the browser has it.
+
+/** Average several channels into one. */
+export function toMono(channels) {
+    if (channels.length === 1) return channels[0];
+    const out = new Float32Array(channels[0].length);
+    for (const ch of channels) {
+        for (let i = 0; i < out.length; i++) out[i] += ch[i];
+    }
+    for (let i = 0; i < out.length; i++) out[i] /= channels.length;
+    return out;
+}
+
+/** Root-mean-square of samples[start, start + length). */
+export function rms(samples, start = 0, length = samples.length - start) {
+    const end = Math.min(samples.length, start + length);
+    let sum = 0;
+    for (let i = Math.max(0, start); i < end; i++) sum += samples[i] * samples[i];
+    return Math.sqrt(sum / Math.max(1, end - start));
+}
+
+/**
+ * Windowed-sinc resampling in plain JS. Works anywhere, but is slower than
+ * resampleFast() in a browser.
+ */
+export function resample(samples, fromRate, toRate, halfTaps = 8) {
+    if (fromRate === toRate) return samples;
+    const ratio = fromRate / toRate;                 // input samples per output sample
+    const cutoff = Math.min(1, 1 / ratio) * 0.95;    // relative to input Nyquist
+    const width = Math.ceil(halfTaps / cutoff);
+    const out = new Float32Array(Math.floor(samples.length / ratio));
+    for (let i = 0; i < out.length; i++) {
+        const t = i * ratio;
+        const center = Math.floor(t);
+        let sum = 0;
+        let weightSum = 0;
+        for (let k = center - width + 1; k <= center + width; k++) {
+            if (k < 0 || k >= samples.length) continue;
+            const d = t - k;
+            const x = Math.PI * d * cutoff;
+            const sinc = x === 0 ? 1 : Math.sin(x) / x;
+            const hann = 0.5 + 0.5 * Math.cos((Math.PI * d) / width);
+            const w = sinc * hann;
+            sum += samples[k] * w;
+            weightSum += w;
+        }
+        out[i] = weightSum ? sum / weightSum : 0;
+    }
+    return out;
+}
+
+/** Resample using the browser's native resampler when available. */
+export async function resampleFast(samples, fromRate, toRate) {
+    if (fromRate === toRate) return samples;
+    if (typeof OfflineAudioContext === 'undefined') return resample(samples, fromRate, toRate);
+    const length = Math.max(1, Math.floor((samples.length * toRate) / fromRate));
+    const ctx = new OfflineAudioContext(1, length, toRate);
+    const buffer = ctx.createBuffer(1, samples.length, fromRate);
+    buffer.copyToChannel(samples, 0);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.start();
+    const rendered = await ctx.startRendering();
+    return rendered.getChannelData(0);
+}
