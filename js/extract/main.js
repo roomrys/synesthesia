@@ -2,23 +2,27 @@
 
 import { getConfig, load, loadAll, loadImpl, registry } from './registry.js';
 import { runExtractor } from './extractors/index.js';
-import { cropNotes, shiftNotes, sortNotes } from './noteset.js';
+import { cropNotes, filterRange, shiftNotes, sortNotes } from './noteset.js';
 import { midiToName } from './music.js';
+import { analysisBlob, buildAnalysis, summarizeStats } from './analysis.js';
 import { Player } from './player.js';
 import { Timeline } from './timeline.js';
 
 const MAX_LISTEN_SECONDS = 20 * 60;
-const DEFAULT_RANGE = { min: 40, max: 88 };   // E2..E6, a guitar's range
-const NOTE_CHOICES = { min: 21, max: 108 };   // A0..C8
+const DETECT_RANGE = { min: 33, max: 100 };   // A1..E7: detection always covers this
+const EMPTY_VIEW = { min: 40, max: 88 };      // E2..E6: rows shown before any notes
+const VIEW_PADDING = 3;                       // semitones shown around the detected notes
 
 const $ = (id) => document.getElementById(id);
 const el = {
     sourceButtons: $('sourceButtons'), liveControls: $('liveControls'), stopButton: $('stopButton'),
     elapsed: $('elapsed'), level: $('level'), sourceHint: $('sourceHint'), clipRow: $('clipRow'),
     clipInfo: $('clipInfo'), clearButton: $('clearButton'), audioStatus: $('audioStatus'),
-    extractorSelect: $('extractorSelect'), minNote: $('minNote'), maxNote: $('maxNote'),
+    extractorSelect: $('extractorSelect'), pitchDisplay: $('pitchDisplay'), pitchFitButton: $('pitchFitButton'),
     extractButton: $('extractButton'), cancelButton: $('cancelButton'), progress: $('progress'),
-    extractorHint: $('extractorHint'), notesStatus: $('notesStatus'),
+    extractorHint: $('extractorHint'), notesStatus: $('notesStatus'), analysisButton: $('analysisButton'),
+    settingsPanel: $('settingsPanel'), settingsGrid: $('settingsGrid'), autoRerun: $('autoRerun'),
+    resetSettingsButton: $('resetSettingsButton'),
     timeline: $('timeline'), playButton: $('playButton'), playCropButton: $('playCropButton'),
     timeDisplay: $('timeDisplay'), songVolume: $('songVolume'), notesVolume: $('notesVolume'),
     followPlayhead: $('followPlayhead'), cropDisplay: $('cropDisplay'), cropStartButton: $('cropStartButton'),
@@ -31,8 +35,11 @@ const state = {
     clip: null,          // AudioClip in memory
     noteSet: null,       // NoteSet for the whole clip
     crop: { start: 0, end: 0 },
+    pitchCrop: null,     // { min, max } MIDI notes kept, inclusive
+    pitchCropMoved: false, // the user moved it, so keep it when re-detecting
     live: null,          // the live source currently listening
     extraction: null,    // AbortController while extracting
+    rerun: false,        // run again when the current extraction stops
 };
 
 let config, extractor, codec, storage, player, timeline;
@@ -64,8 +71,51 @@ function duration() {
     return timeline.duration;
 }
 
-function range() {
-    return { minMidi: Number(el.minNote.value), maxMidi: Number(el.maxNote.value) };
+/** Notes inside the pitch crop: what is played back and saved. */
+function keptNotes() {
+    if (!state.noteSet) return [];
+    const { min, max } = state.pitchCrop ?? { min: 0, max: 127 };
+    return filterRange(state.noteSet.notes, min, max);
+}
+
+function detectedRange(notes) {
+    if (!notes.length) return null;
+    return {
+        min: notes.reduce((m, n) => Math.min(m, n.midi), Infinity),
+        max: notes.reduce((m, n) => Math.max(m, n.midi), -Infinity),
+    };
+}
+
+/** Rows shown in the piano roll: the detected notes plus padding, and the pitch crop. */
+function updateView() {
+    const found = detectedRange(state.noteSet?.notes ?? []);
+    if (!found) return timeline.setRange(EMPTY_VIEW.min, EMPTY_VIEW.max);
+    const crop = state.pitchCrop ?? found;
+    timeline.setRange(
+        Math.max(DETECT_RANGE.min, Math.min(found.min, crop.min) - VIEW_PADDING),
+        Math.min(DETECT_RANGE.max, Math.max(found.max, crop.max) + VIEW_PADDING),
+    );
+}
+
+function setPitchCrop(min, max, { fromTimeline = false, moved = true } = {}) {
+    state.pitchCrop = { min, max };
+    state.pitchCropMoved = moved;
+    if (!fromTimeline) timeline.setPitchCrop(min, max);
+    player.setNotes(keptNotes());
+    refresh();
+}
+
+function fitPitchCrop() {
+    const found = detectedRange(state.noteSet?.notes ?? []);
+    if (found) {
+        setPitchCrop(found.min, found.max, { moved: false });
+    } else {
+        state.pitchCrop = null;
+        state.pitchCropMoved = false;
+        player.setNotes([]);
+        refresh();
+    }
+    updateView();
 }
 
 // ----- UI state -----
@@ -93,7 +143,15 @@ function refresh() {
     el.cropDisplay.textContent = hasTimeline
         ? `${formatTime(state.crop.start)} – ${formatTime(state.crop.end)} (${(state.crop.end - state.crop.start).toFixed(1)} s)`
         : '–';
+    el.pitchFitButton.disabled = !hasNotes || listening;
+    if (state.noteSet && state.pitchCrop) {
+        const kept = keptNotes().length;
+        el.pitchDisplay.textContent = `${midiToName(state.pitchCrop.min)} – ${midiToName(state.pitchCrop.max)} (${kept} of ${state.noteSet.notes.length})`;
+    } else {
+        el.pitchDisplay.textContent = '–';
+    }
     el.saveButton.disabled = !hasNotes || extracting;
+    el.analysisButton.hidden = !state.noteSet?.pitchTrack || extracting;
 }
 
 function setCrop(start, end, { fromTimeline = false } = {}) {
@@ -182,10 +240,13 @@ async function openFile(source, file) {
 async function useClip(clip) {
     state.clip = clip;
     state.noteSet = null;
+    state.pitchCrop = null;
+    state.pitchCropMoved = false;
     player.setClip(clip);
     player.setNotes([]);
     timeline.setClip(clip);
     timeline.setNotes([]);
+    updateView();
     setCrop(0, clip.duration);
     el.clipInfo.textContent = `${formatTime(clip.duration, 0)} of audio in memory`;
     if (!el.titleInput.value) el.titleInput.value = defaultTitle();
@@ -197,10 +258,12 @@ function clearAudio() {
     player.pause();
     state.clip = null;
     state.noteSet = null;
+    state.pitchCrop = null;
     player.setClip(null);
     player.setNotes([]);
     timeline.setClip(null, 0);
     timeline.setNotes([]);
+    updateView();
     setStatus(el.audioStatus, 'Audio cleared.');
     setStatus(el.notesStatus);
     refresh();
@@ -214,18 +277,98 @@ async function setupExtractors() {
         el.extractorSelect.append(new Option(impl.name, id, false, id === config.extractor));
     }
     el.extractorHint.textContent = extractor.description ?? '';
-
-    for (const select of [el.minNote, el.maxNote]) {
-        for (let m = NOTE_CHOICES.min; m <= NOTE_CHOICES.max; m++) select.append(new Option(midiToName(m), m));
-    }
-    el.minNote.value = DEFAULT_RANGE.min;
-    el.maxNote.value = DEFAULT_RANGE.max;
-    timeline.setRange(DEFAULT_RANGE.min, DEFAULT_RANGE.max);
+    renderSettings();
+    updateView();
 }
 
+// ----- detector settings -----
+// Each extractor lists its tunable settings; tuned values are remembered per
+// extractor in this browser (a convenience only; the page works without it).
+
+const settingsKey = (id) => `synesthesia.extractor.${id}`;
+
+function loadTuned(id) {
+    try {
+        return JSON.parse(localStorage.getItem(settingsKey(id))) ?? {};
+    } catch {
+        return {};
+    }
+}
+
+function saveTuned(id, values) {
+    try {
+        localStorage.setItem(settingsKey(id), JSON.stringify(values));
+    } catch { /* storage unavailable: settings just aren't remembered */ }
+}
+
+/** Current option overrides for the active extractor (only valid, known keys). */
+function tunedOptions() {
+    const saved = loadTuned(extractor.id);
+    const out = {};
+    for (const s of extractor.settings ?? []) {
+        const v = Number(saved[s.key]);
+        if (Number.isFinite(v) && v >= s.min && v <= s.max) out[s.key] = v;
+    }
+    return out;
+}
+
+function renderSettings() {
+    const list = extractor.settings ?? [];
+    el.settingsPanel.hidden = list.length === 0;
+    el.settingsGrid.replaceChildren();
+    const tuned = tunedOptions();
+    for (const s of list) {
+        const value = tuned[s.key] ?? extractor.defaults[s.key];
+        const format = s.format ?? String;
+        const wrap = document.createElement('label');
+        wrap.className = 'setting';
+        wrap.title = s.help ?? '';
+        const head = document.createElement('div');
+        head.className = 'setting-head';
+        const name = Object.assign(document.createElement('span'), { textContent: s.label });
+        const output = Object.assign(document.createElement('output'), { textContent: format(value) });
+        head.append(name, output);
+        const input = Object.assign(document.createElement('input'), { type: 'range', min: s.min, max: s.max, step: s.step, value });
+        const markChanged = (v) => wrap.classList.toggle('changed', v !== extractor.defaults[s.key]);
+        markChanged(value);
+        input.addEventListener('input', () => {
+            const v = Number(input.value);
+            output.textContent = format(v);
+            markChanged(v);
+        });
+        input.addEventListener('change', () => {
+            saveTuned(extractor.id, { ...loadTuned(extractor.id), [s.key]: Number(input.value) });
+            settingsChanged();
+        });
+        wrap.append(head, input);
+        if (s.help) wrap.append(Object.assign(document.createElement('small'), { textContent: s.help }));
+        el.settingsGrid.append(wrap);
+    }
+}
+
+function settingsChanged() {
+    if (!state.clip) return;
+    if (el.autoRerun.checked) extract();
+    else setStatus(el.notesStatus, 'Settings changed. Press “Find notes again” to use them.');
+}
+
+function resetSettings() {
+    saveTuned(extractor.id, {});
+    renderSettings();
+    settingsChanged();
+}
+
+/**
+ * Run the extractor on the clip. If a run is already going, cancel it and run
+ * again with the latest settings once it has stopped.
+ */
 async function extract() {
-    if (!state.clip || state.extraction) return;
-    const { minMidi, maxMidi } = range();
+    if (!state.clip) return;
+    if (state.extraction) {
+        state.rerun = true;
+        state.extraction.abort();
+        return;
+    }
     const controller = new AbortController();
     state.extraction = controller;
     el.progress.value = 0;
@@ -233,42 +376,42 @@ async function extract() {
     refresh();
     const t0 = performance.now();
     try {
+        // Detect over the full range; the pitch crop then filters instantly.
         const noteSet = await runExtractor(extractor, state.clip, {
-            minMidi, maxMidi,
+            minMidi: DETECT_RANGE.min, maxMidi: DETECT_RANGE.max,
+            options: tunedOptions(),
             signal: controller.signal,
             onProgress: (p) => { el.progress.value = p; },
         });
         showNotes(noteSet);
         const ms = performance.now() - t0;
         const took = ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`;
-        setStatus(el.notesStatus, `Found ${noteSet.notes.length} notes in ${took}. Press play to hear them over the audio.`, 'ok');
+        const summary = summarizeStats(noteSet.stats);
+        setStatus(el.notesStatus, `Found ${noteSet.notes.length} notes in ${took}. ${summary} Press play to hear them over the audio.`, 'ok');
     } catch (err) {
-        if (err.name === 'AbortError') setStatus(el.notesStatus, 'Cancelled.');
-        else setStatus(el.notesStatus, err.message, 'error');
+        if (err.name !== 'AbortError') setStatus(el.notesStatus, err.message, 'error');
+        else if (!state.rerun) setStatus(el.notesStatus, 'Cancelled.');
     } finally {
         state.extraction = null;
         refresh();
     }
+    if (state.rerun) {
+        state.rerun = false;
+        extract();
+    }
 }
 
-function showNotes(noteSet) {
+/**
+ * Show a NoteSet. The pitch crop fits the detected notes unless the user has
+ * moved it (or `pitchCrop` is given, e.g. from an opened file).
+ */
+function showNotes(noteSet, pitchCrop = null) {
     state.noteSet = noteSet;
-    player.setNotes(noteSet.notes);
-    timeline.setRange(noteSet.range.minMidi, noteSet.range.maxMidi);
     timeline.setNotes(noteSet.notes, noteSet.pitchTrack ?? null);
-}
-
-function onRangeChange() {
-    let { minMidi, maxMidi } = range();
-    if (minMidi > maxMidi) {
-        [minMidi, maxMidi] = [maxMidi, minMidi];
-        el.minNote.value = minMidi;
-        el.maxNote.value = maxMidi;
-    }
-    timeline.setRange(minMidi, maxMidi);
-    if (state.noteSet && state.clip) {
-        setStatus(el.notesStatus, 'Range changed. Press “Find notes again” to use it.');
-    }
+    if (pitchCrop) setPitchCrop(pitchCrop.min, pitchCrop.max, { moved: true });
+    else if (!state.pitchCropMoved || !state.pitchCrop) fitPitchCrop();
+    else setPitchCrop(state.pitchCrop.min, state.pitchCrop.max);
+    updateView();
 }
 
 // ----- playback -----
@@ -330,9 +473,10 @@ async function chooseFolder() {
 async function save() {
     if (!state.noteSet) return;
     const title = el.titleInput.value.trim() || defaultTitle();
-    const notes = cropNotes(state.noteSet.notes, state.crop.start, state.crop.end);
+    const notes = cropNotes(keptNotes(), state.crop.start, state.crop.end);
     if (!notes.length) return setStatus(el.saveStatus, 'There are no notes inside the crop.', 'error');
-    const blob = codec.encode({ ...state.noteSet, notes }, { title, duration: state.crop.end - state.crop.start });
+    const range = { minMidi: state.pitchCrop.min, maxMidi: state.pitchCrop.max };
+    const blob = codec.encode({ ...state.noteSet, notes, range }, { title, duration: state.crop.end - state.crop.start });
     try {
         const { filename, location } = await storage.save(slugify(title) + codec.extension, blob);
         setStatus(el.saveStatus, `Saved ${notes.length} notes to ${filename} in ${location}.`, 'ok');
@@ -355,9 +499,8 @@ async function openNotes() {
             setCrop(0, meta.duration);
         }
         const offset = state.clip ? state.crop.start : 0;
+        state.pitchCropMoved = false;
         showNotes({ ...noteSet, notes: sortNotes(shiftNotes(noteSet.notes, offset)) });
-        el.minNote.value = noteSet.range.minMidi;
-        el.maxNote.value = noteSet.range.maxMidi;
         if (meta.title) el.titleInput.value = meta.title;
         const where = state.clip ? ` from the crop start (${formatTime(offset)})` : '';
         setStatus(el.saveStatus, `Opened ${noteSet.notes.length} notes from ${file.name}${where}.`, 'ok');
@@ -365,6 +508,19 @@ async function openNotes() {
     } catch (err) {
         if (err.name === 'AbortError') return;
         setStatus(el.saveStatus, err.message, 'error');
+    }
+}
+
+/** Save the detector's per-frame numbers (no audio) for debugging. */
+async function exportAnalysis() {
+    if (!state.noteSet) return;
+    const title = el.titleInput.value.trim() || defaultTitle();
+    const blob = analysisBlob(buildAnalysis(state.noteSet, { title, clipDuration: state.clip?.duration ?? 0 }));
+    try {
+        const { filename, location } = await storage.save(`${slugify(title)}.analysis.json`, blob);
+        setStatus(el.notesStatus, `Saved the analysis to ${filename} in ${location}. It contains no audio.`, 'ok');
+    } catch (err) {
+        if (err.name !== 'AbortError') setStatus(el.notesStatus, err.message, 'error');
     }
 }
 
@@ -394,6 +550,7 @@ async function main() {
     timeline = new Timeline(el.timeline, {
         onSeek: seek,
         onCropChange: (start, end) => setCrop(start, end, { fromTimeline: true }),
+        onPitchCropChange: (min, max) => setPitchCrop(min, max, { fromTimeline: true }),
     });
     player = new Player(voiceImpl);
     player.onStop = () => refresh();
@@ -407,12 +564,15 @@ async function main() {
     el.clearButton.addEventListener('click', clearAudio);
     el.extractButton.addEventListener('click', extract);
     el.cancelButton.addEventListener('click', () => state.extraction?.abort());
+    el.analysisButton.addEventListener('click', exportAnalysis);
     el.extractorSelect.addEventListener('change', async () => {
         extractor = await loadImpl('extractor', el.extractorSelect.value);
         el.extractorHint.textContent = extractor.description ?? '';
+        renderSettings();
+        settingsChanged();
     });
-    el.minNote.addEventListener('change', onRangeChange);
-    el.maxNote.addEventListener('change', onRangeChange);
+    el.resetSettingsButton.addEventListener('click', resetSettings);
+    el.pitchFitButton.addEventListener('click', fitPitchCrop);
     el.playButton.addEventListener('click', togglePlay);
     el.playCropButton.addEventListener('click', playCrop);
     el.songVolume.addEventListener('input', () => player.setSongVolume(Number(el.songVolume.value)));
@@ -428,6 +588,8 @@ async function main() {
     window.addEventListener('beforeunload', (e) => { if (state.live) e.preventDefault(); });
 
     refresh();
+    // For debugging in the console (and tests): window.extractor.state, .timeline, .player
+    window.extractor = { state, timeline, player, keptNotes };
     document.body.dataset.ready = 'true';
 }
 

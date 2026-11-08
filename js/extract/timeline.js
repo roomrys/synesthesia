@@ -1,8 +1,9 @@
 // Canvas timeline: overview strip, waveform, piano roll (fretboard colours),
 // pitch track, crop handles and playhead.
 //
-// Mouse: scroll to zoom, horizontal scroll or drag to pan, click to jump,
-// drag the yellow handles to crop. Drag in the overview to move the view.
+// Mouse: scroll to zoom, horizontal scroll or drag to pan, click to jump.
+// Yellow handles crop: vertical ones set the time range, horizontal ones set
+// the pitch range (notes kept). Drag in the overview to move the view.
 
 import { midiToName, noteColor, pitchClass } from './music.js';
 
@@ -28,6 +29,7 @@ const COLORS = {
     playhead: '#ffffff',
     view: 'rgba(255, 255, 255, 0.7)',
     pitch: 'rgba(255, 255, 255, 0.45)',
+    rejected: '#c8c8ff',
 };
 
 function formatTime(t) {
@@ -43,11 +45,13 @@ function niceStep(span, pixels) {
 }
 
 export class Timeline {
-    constructor(canvas, { onSeek, onCropChange } = {}) {
+    constructor(canvas, { onSeek, onCropChange, onPitchCropChange } = {}) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         this.onSeek = onSeek;
         this.onCropChange = onCropChange;
+        this.onPitchCropChange = onPitchCropChange;
+        this.pitchCrop = { min: 40, max: 88 };   // kept notes, inclusive MIDI
         this.clip = null;
         this.duration = 0;
         this.notes = [];
@@ -93,10 +97,21 @@ export class Timeline {
         this.draw();
     }
 
+    /** The pitch rows shown in the piano roll. */
     setRange(minMidi, maxMidi) {
         this.minMidi = minMidi;
         this.maxMidi = maxMidi;
         this.draw();
+    }
+
+    /** The pitch crop: notes from `min` to `max` (inclusive) are kept. */
+    setPitchCrop(min, max) {
+        this.pitchCrop = { min, max };
+        this.draw();
+    }
+
+    inPitchCrop(midi) {
+        return midi >= this.pitchCrop.min && midi <= this.pitchCrop.max;
     }
 
     setCrop(start, end) {
@@ -143,6 +158,10 @@ export class Timeline {
         return this.rollTop + ((this.maxMidi - midi) / rows) * this.rollHeight;
     }
     get rowHeight() { return this.rollHeight / (this.maxMidi - this.minMidi + 1); }
+    get pitchCropTopY() { return this.midiToY(this.pitchCrop.max); }
+    get pitchCropBottomY() { return this.midiToY(this.pitchCrop.min) + this.rowHeight; }
+    /** Nearest row boundary to y, as the MIDI note just above it. */
+    boundaryMidiAt(y) { return this.maxMidi - Math.round((y - this.rollTop) / this.rowHeight) + 1; }
 
     setView(start, end) {
         const span = Math.min(Math.max(MIN_SPAN, end - start), Math.max(MIN_SPAN, this.duration));
@@ -249,9 +268,11 @@ export class Timeline {
         // Notes as ticks, so you can see where music was found.
         for (const n of this.notes) {
             ctx.fillStyle = noteColor(n.midi);
+            ctx.globalAlpha = this.inPitchCrop(n.midi) ? 1 : 0.2;
             const x = this.overviewTimeToX(n.start);
             ctx.fillRect(x, OVERVIEW_H - 5, Math.max(1, this.overviewTimeToX(n.start + n.duration) - x), 3);
         }
+        ctx.globalAlpha = 1;
         const x1 = this.overviewTimeToX(this.view.start);
         const x2 = this.overviewTimeToX(this.view.end);
         ctx.strokeStyle = COLORS.view;
@@ -330,7 +351,7 @@ export class Timeline {
             const x = this.timeToX(n.start);
             const w = Math.max(2, this.timeToX(n.start + n.duration) - x);
             const y = this.midiToY(n.midi);
-            ctx.globalAlpha = 0.55 + 0.45 * n.velocity;
+            ctx.globalAlpha = this.inPitchCrop(n.midi) ? 0.55 + 0.45 * n.velocity : 0.18;
             ctx.fillStyle = noteColor(n.midi);
             ctx.fillRect(x, y + 1, w, Math.max(2, rowH - 2));
             ctx.globalAlpha = 1;
@@ -350,6 +371,19 @@ export class Timeline {
         const last = Math.min(track.midi.length - 1, Math.ceil((this.view.end - track.startSeconds) / track.hopSeconds));
         const stride = Math.max(1, Math.floor((last - first) / (this.plotWidth * 2)));
         const rowH = this.rowHeight;
+
+        // Rejected best guesses as faint dots: brighter = closer to being accepted.
+        if (track.candidateMidi) {
+            ctx.fillStyle = COLORS.rejected;
+            for (let i = first; i <= last; i += stride) {
+                const m = track.candidateMidi[i];
+                if (!Number.isNaN(track.midi[i]) || Number.isNaN(m) || m < this.minMidi - 0.5 || m > this.maxMidi + 0.5) continue;
+                ctx.globalAlpha = Math.max(0.08, Math.min(0.7, 1 - (track.aperiodicity?.[i] ?? 1)));
+                ctx.fillRect(this.timeToX(track.startSeconds + i * track.hopSeconds) - 1, this.midiToY(m) + rowH / 2 - 1, 2, 2);
+            }
+            ctx.globalAlpha = 1;
+        }
+
         ctx.strokeStyle = COLORS.pitch;
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -375,6 +409,15 @@ export class Timeline {
         const ce = Math.min(this.width, this.timeToX(this.crop.end));
         if (cs > GUTTER) ctx.fillRect(GUTTER, top, cs - GUTTER, bottom - top);
         if (ce < this.width) ctx.fillRect(Math.max(GUTTER, ce), top, this.width - Math.max(GUTTER, ce), bottom - top);
+        // Shade pitch rows outside the pitch crop (only inside the time crop, to avoid double shading).
+        const pTop = this.pitchCropTopY;
+        const pBottom = this.pitchCropBottomY;
+        const left = Math.max(GUTTER, cs);
+        const right = Math.min(this.width, ce);
+        if (right > left) {
+            if (pTop > this.rollTop) ctx.fillRect(left, this.rollTop, right - left, pTop - this.rollTop);
+            if (pBottom < bottom) ctx.fillRect(left, pBottom, right - left, bottom - pBottom);
+        }
         const os = this.overviewTimeToX(this.crop.start);
         const oe = this.overviewTimeToX(this.crop.end);
         ctx.fillRect(GUTTER, 0, os - GUTTER, OVERVIEW_H);
@@ -396,6 +439,17 @@ export class Timeline {
             ctx.fillRect(Math.round(ox) - 1, 0, 2, OVERVIEW_H);
         }
 
+        // Pitch crop handles: horizontal lines with a tab in the gutter.
+        for (const [y, dir] of [[pTop, 1], [pBottom, -1]]) {
+            if (y < this.rollTop - 1 || y > bottom + 1) continue;
+            ctx.fillRect(GUTTER, Math.round(y) - 1, this.plotWidth, 2);
+            ctx.beginPath();
+            ctx.moveTo(GUTTER, y);
+            ctx.lineTo(GUTTER - 12, y);
+            ctx.lineTo(GUTTER, y + dir * 10);
+            ctx.fill();
+        }
+
         // Playhead.
         ctx.fillStyle = COLORS.playhead;
         const px = this.timeToX(this.playhead);
@@ -405,13 +459,19 @@ export class Timeline {
 
     // ----- interaction -----
 
+    /** Which handle is under (x, y): 'start' | 'end' (time) | 'pitchMax' | 'pitchMin' | null. */
     hitHandle(x, y) {
-        const inOverview = y < OVERVIEW_H;
-        const toX = inOverview ? (t) => this.overviewTimeToX(t) : (t) => this.timeToX(t);
-        const ds = Math.abs(x - toX(this.crop.start));
-        const de = Math.abs(x - toX(this.crop.end));
-        if (Math.min(ds, de) > HANDLE_HIT) return null;
-        return ds <= de ? 'start' : 'end';
+        const candidates = [];
+        if (x >= GUTTER) {
+            const inOverview = y < OVERVIEW_H;
+            const toX = inOverview ? (t) => this.overviewTimeToX(t) : (t) => this.timeToX(t);
+            candidates.push(['start', Math.abs(x - toX(this.crop.start))], ['end', Math.abs(x - toX(this.crop.end))]);
+        }
+        if (y >= this.rollTop - HANDLE_HIT) {
+            candidates.push(['pitchMax', Math.abs(y - this.pitchCropTopY)], ['pitchMin', Math.abs(y - this.pitchCropBottomY)]);
+        }
+        const [best] = candidates.filter(([, d]) => d <= HANDLE_HIT).sort((a, b) => a[1] - b[1]);
+        return best ? best[0] : null;
     }
 
     localPoint(e) {
@@ -422,10 +482,11 @@ export class Timeline {
     pointerDown(e) {
         if (!this.duration) return;
         const { x, y } = this.localPoint(e);
-        if (x < GUTTER) return;
-        this.canvas.setPointerCapture(e.pointerId);
         const handle = this.hitHandle(x, y);
-        if (handle) this.drag = { type: 'crop', handle, overview: y < OVERVIEW_H };
+        if (!handle && x < GUTTER) return;
+        try { this.canvas.setPointerCapture(e.pointerId); } catch { /* synthetic pointer: drag still works */ }
+        if (handle === 'pitchMax' || handle === 'pitchMin') this.drag = { type: 'pitch', handle };
+        else if (handle) this.drag = { type: 'crop', handle, overview: y < OVERVIEW_H };
         else if (y < OVERVIEW_H) {
             this.drag = { type: 'overview' };
             this.moveViewTo(this.overviewXToTime(x));
@@ -435,11 +496,23 @@ export class Timeline {
     pointerMove(e) {
         const { x, y } = this.localPoint(e);
         if (!this.drag) {
-            this.canvas.style.cursor = x >= GUTTER && this.duration && this.hitHandle(x, y) ? 'ew-resize' : 'default';
+            const handle = this.duration ? this.hitHandle(x, y) : null;
+            this.canvas.style.cursor = !handle ? 'default' : handle.startsWith('pitch') ? 'ns-resize' : 'ew-resize';
             return;
         }
         const d = this.drag;
-        if (d.type === 'crop') {
+        if (d.type === 'pitch') {
+            const above = Math.max(this.minMidi, Math.min(this.maxMidi + 1, this.boundaryMidiAt(y)));
+            const { min, max } = this.pitchCrop;
+            const next = d.handle === 'pitchMax'
+                ? { min, max: Math.max(min, above - 1) }
+                : { min: Math.min(max, above), max };
+            if (next.min !== min || next.max !== max) {
+                this.pitchCrop = next;
+                this.onPitchCropChange?.(next.min, next.max);
+                this.draw();
+            }
+        } else if (d.type === 'crop') {
             const t = Math.max(0, Math.min(this.duration, d.overview ? this.overviewXToTime(x) : this.xToTime(x)));
             if (d.handle === 'start') this.crop.start = Math.min(t, this.crop.end - 0.1);
             else this.crop.end = Math.max(t, this.crop.start + 0.1);

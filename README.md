@@ -17,14 +17,14 @@ A new page (`extract.html`) that listens to audio, detects the notes, and saves 
 
 - Listen to audio playing in another browser tab (Chrome/Edge), or open an audio file (microphone coming soon)
 - Play the detected notes back over the audio to check them by ear
-- Crop to the part you want
+- Crop to the part you want, in time and in pitch
 - Save the notes as a `.synesthesia` file (readable JSON) in a folder you choose
 
 Audio is only held in memory while you use the page. It is never saved or uploaded; only the detected notes are saved.
 
 ## Roadmap
 - [ ] Note extractor: listen to a browser tab, detect notes, play them back, crop, save
-- [ ] Note range filter (e.g. only notes a guitar can play)
+- [x] Note range filter: drag to keep only the notes you want
 - [ ] More audio sources (microphone, audio file) and pitch detectors
 - [ ] Load note files onto the fretboard and replay them in time
 - [ ] MIDI file support

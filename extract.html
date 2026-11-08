@@ -40,14 +40,21 @@
             <h2><span class="step">2</span> Notes</h2>
             <div class="row">
                 <label>Detector <select id="extractorSelect"></select></label>
-                <label>Lowest note <select id="minNote"></select></label>
-                <label>Highest note <select id="maxNote"></select></label>
                 <button id="extractButton" class="primary" disabled>Find notes</button>
                 <button id="cancelButton" hidden>Cancel</button>
                 <progress id="progress" max="1" value="0" hidden></progress>
+                <button id="analysisButton" hidden title="Per-frame detector numbers for debugging. Contains no audio.">Export analysis</button>
             </div>
             <p class="hint" id="extractorHint"></p>
             <p class="status" id="notesStatus" role="status"></p>
+            <details id="settingsPanel" hidden>
+                <summary>Tune the detector</summary>
+                <div class="settings" id="settingsGrid"></div>
+                <div class="row">
+                    <label class="check"><input type="checkbox" id="autoRerun" checked> Re-run when a setting changes</label>
+                    <button id="resetSettingsButton">Reset to defaults</button>
+                </div>
+            </details>
         </section>
 
         <section class="panel" id="timelinePanel">
@@ -62,13 +69,17 @@
                 <label class="check"><input type="checkbox" id="followPlayhead" checked> Follow</label>
             </div>
             <div class="row">
-                <span>Crop <span class="time" id="cropDisplay">–</span></span>
+                <span>Time <span class="time" id="cropDisplay">–</span></span>
                 <button id="cropStartButton" disabled title="[">Start here</button>
                 <button id="cropEndButton" disabled title="]">End here</button>
                 <button id="cropResetButton" disabled>Reset</button>
+                <span class="divider"></span>
+                <span>Notes <span class="time" id="pitchDisplay">–</span></span>
+                <button id="pitchFitButton" disabled>Fit to notes</button>
             </div>
-            <p class="hint">Scroll to zoom, drag to pan, click to jump. Drag the yellow handles, or press
-                <kbd>[</kbd> and <kbd>]</kbd> to set the crop at the playhead. <kbd>Space</kbd> plays and pauses.</p>
+            <p class="hint">Scroll to zoom, drag to pan, click to jump. Drag the yellow handles to crop: the vertical
+                ones set the time, the horizontal ones set the lowest and highest notes kept. Press
+                <kbd>[</kbd> and <kbd>]</kbd> to set the time crop at the playhead. <kbd>Space</kbd> plays and pauses.</p>
         </section>
 
         <section class="panel" id="savePanel">

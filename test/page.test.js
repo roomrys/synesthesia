@@ -11,7 +11,7 @@ function waitFor(check, timeoutMs = 15000, what = 'condition') {
             let value;
             try { value = check(); } catch { value = null; }
             if (value) return resolve(value);
-            if (performance.now() - t0 > timeoutMs) return reject(new Error(`Timed out waiting for ${what}`));
+            if (performance.now() - t0 > timeoutMs) return reject(new Error(`Timed out waiting for ${what}${waitFor.context ? ' — ' + waitFor.context() : ''}`));
             setTimeout(poll, 50);
         };
         poll();
@@ -43,11 +43,57 @@ test('page: opening an audio file finds notes and enables playback and saving', 
         input.dispatchEvent(new Event('change'));
 
         const notesStatus = doc.getElementById('notesStatus');
+        waitFor.context = () => `status: "${notesStatus.textContent}"`;
         await waitFor(() => notesStatus.classList.contains('ok') || notesStatus.classList.contains('error'), 15000, 'extraction');
         assertEqual(notesStatus.textContent.match(/Found (\d+) notes/)?.[1], '3', `status: "${notesStatus.textContent}"`);
         assertEqual(doc.getElementById('titleInput').value, 'test-melody');
         assert(!doc.getElementById('saveButton').disabled, 'save disabled');
         assert(!doc.getElementById('playButton').disabled, 'play disabled');
+
+        // Detector settings are rendered from the extractor's list.
+        assert(!doc.getElementById('settingsPanel').hidden, 'settings panel hidden');
+        assertEqual(doc.querySelectorAll('#settingsGrid input[type="range"]').length, 6, 'sliders:');
+
+        // The pitch crop defaults to the detected range.
+        const pitchDisplay = doc.getElementById('pitchDisplay');
+        assertEqual(pitchDisplay.textContent, 'E4 – B4 (3 of 3)', 'pitch crop:');
+
+        // Dragging the top pitch handle down to G4 keeps E4 and G4, without re-running detection.
+        const { timeline, player } = frame.contentWindow.extractor;
+        const canvas = doc.getElementById('timeline');
+        const rect = canvas.getBoundingClientRect();
+        const pointer = (type, x, y) => canvas.dispatchEvent(new frame.contentWindow.PointerEvent(type, {
+            clientX: rect.left + x, clientY: rect.top + y, pointerId: 1, bubbles: true,
+        }));
+        const x = rect.width / 2;
+        pointer('pointerdown', x, timeline.pitchCropTopY);
+        pointer('pointermove', x, timeline.midiToY(67));   // top edge of the G4 row
+        pointer('pointerup', x, timeline.midiToY(67));
+        assertEqual(pitchDisplay.textContent, 'E4 – G4 (2 of 3)', 'after drag:');
+        assertEqual(player.notes.length, 2, 'notes played:');
+
+        // Re-detecting keeps a crop the user moved; Fit to notes restores the detected range.
+        notesStatus.textContent = '';
+        doc.getElementById('extractButton').click();
+        await waitFor(() => /Found 3 notes/.test(notesStatus.textContent), 10000, 're-run');
+        assertEqual(pitchDisplay.textContent, 'E4 – G4 (2 of 3)', 'crop after re-run:');
+        doc.getElementById('pitchFitButton').click();
+        assertEqual(pitchDisplay.textContent, 'E4 – B4 (3 of 3)', 'after fit:');
+
+        // Changing a slider re-runs detection and marks the setting as changed.
+        const slider = doc.querySelector('#settingsGrid input[type="range"]');
+        notesStatus.textContent = '';
+        slider.value = slider.max;
+        slider.dispatchEvent(new Event('input'));
+        slider.dispatchEvent(new Event('change'));
+        await waitFor(() => /Found \d+ notes/.test(notesStatus.textContent), 10000, 're-run after slider change');
+        assert(slider.closest('.setting').classList.contains('changed'), 'slider not marked as changed');
+
+        // Reset restores defaults and re-runs.
+        notesStatus.textContent = '';
+        doc.getElementById('resetSettingsButton').click();
+        await waitFor(() => /Found \d+ notes/.test(notesStatus.textContent), 10000, 're-run after reset');
+        assert(!doc.querySelector('#settingsGrid .setting.changed'), 'settings still marked as changed after reset');
 
         doc.getElementById('playButton').click();
         await waitFor(() => doc.getElementById('playButton').textContent.includes('Pause'), 3000, 'playing');

@@ -68,9 +68,16 @@ Both are static pages with no build step, hosted on GitHub Pages.
 3. The **Player** plays the song and a synth **Voice** playing the detected
    notes together, so you can hear where the transcription is right or wrong.
 4. The **Timeline** draws the waveform, the notes (in the fretboard's note
-   colours) and the playhead, and lets you set crop start and end.
-5. **Crop** trims the notes to the chosen region and re-times them so the
-   region starts at 0.
+   colours) and the playhead. It has two crops: vertical handles set the
+   **time** range, and horizontal handles set the **pitch** range (lowest and
+   highest notes kept).
+5. **Crop** keeps notes inside the pitch range, trims them to the time range,
+   and re-times them so the region starts at 0.
+
+Detection always covers a wide pitch range (A1–E7). The pitch crop is an instant
+filter that needs no re-run: by default it fits the detected notes, it survives
+re-detection once you've moved it, and **Fit to notes** resets it. Notes outside
+the pitch crop are dimmed, not played back, and not saved.
 6. A **Codec** encodes the notes, and **Storage** saves the file.
 
 Extraction runs on the whole clip, so you can see where the music starts before
@@ -160,6 +167,8 @@ Turns audio into notes.
 {
   id, name, description,
   defaults: object,                    // extractor-specific options
+  settings?: [{ key, label, min, max, step, format?(value), help? }],
+                                       // tunable options; the page builds sliders from this
   extract(clip: AudioClip, {
     minMidi, maxMidi,                  // range hint (also enforced by the wrapper)
     options,                           // overrides for `defaults`
@@ -172,6 +181,16 @@ Turns audio into notes.
 Extractors resample internally to whatever rate suits them. Always call
 extractors through `runExtractor()` in `extractors/index.js`, which validates the
 output, filters to the requested range and sorts the notes.
+
+**Tuning:** the page shows a slider for each entry in `settings`. Changing one
+re-runs detection, cancelling and replacing a run already in progress. Tuned
+values are remembered per extractor in `localStorage`, as a convenience only.
+The note file records the options that were used.
+
+**Debugging:** extractors may return `stats` (e.g. why frames were rejected) and
+extra per-frame arrays in `pitchTrack`. The page summarises `stats` in the status
+line, draws rejected pitch guesses faintly on the timeline, and **Export analysis**
+saves the per-frame numbers as `<name>.analysis.json`. That file contains no audio.
 
 | id | Status | Notes |
 |---|---|---|
@@ -328,6 +347,7 @@ js/
     dsp.js                 resampling, RMS                     (pure)
     music.js               MIDI ↔ name, note colours           (pure)
     noteset.js             sort, range filter, crop            (pure)
+    analysis.js            debug export of per-frame numbers   (pure)
     player.js              song + voice playback on one clock
     timeline.js            canvas: waveform, piano roll, crop, playhead
     capture-worklet.js     AudioWorklet for live sources
@@ -397,9 +417,9 @@ python3 -m http.server 8000
 1. 🚧 **Extract and save:** tab and file sources, YIN extractor, timeline with
    playback of song plus detected notes, crop, save JSON, load JSON back to check
    it. Built and tested headless; tab capture and saving still need testing by hand.
-2. 🚧 **Note range filter in the UI:** basic low and high note controls exist.
-   Still to do: presets (guitar, voice, bass), and re-filtering without
-   re-running extraction.
+2. ✅ **Note range filter in the UI:** a vertical crop on the piano roll that
+   defaults to the detected range and filters instantly. Possible extra: presets
+   (guitar, voice, bass).
 3. 📝 **More sources and extractors:** mic, pitchy, Basic Pitch.
 4. 📝 **Fretboard integration:** load note files (JSON and MIDI) into
    `index.html`, map notes to string and fret positions, and replay them in time
