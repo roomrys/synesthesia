@@ -79,6 +79,11 @@ Both are static pages with no build step, hosted on GitHub Pages.
 5. **Crop** keeps notes inside the pitch range, trims them to the time range,
    and re-times them so the region starts at 0.
 
+The time crop starts fitted to the audio (`findAudibleRange` in `dsp.js`): from
+the first to the last 20 ms window within 40 dB of the loudest, with 50 ms
+padding before and 200 ms after. **Fit to audio** re-applies it, and **Reset**
+selects the whole clip.
+
 Detection always covers a wide pitch range (A1–E7). The pitch crop is an instant
 filter that needs no re-run: by default it fits the detected notes, it survives
 re-detection once you've moved it, and **Fit to notes** resets it. Notes outside

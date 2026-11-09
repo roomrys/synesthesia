@@ -50,6 +50,41 @@ export function resample(samples, fromRate, toRate, halfTaps = 8) {
     return out;
 }
 
+/**
+ * First and last moments the audio is audible, in seconds, with padding.
+ * "Audible" = a window's RMS is within `thresholdDb` of the loudest window
+ * (and above an absolute floor, so pure noise doesn't count).
+ * Returns null if nothing is audible.
+ */
+export function findAudibleRange(samples, sampleRate, {
+    thresholdDb = -40, windowSeconds = 0.02, padStart = 0.05, padEnd = 0.2, floor = 1e-3,
+} = {}) {
+    const size = Math.max(1, Math.round(windowSeconds * sampleRate));
+    const count = Math.floor(samples.length / size);
+    if (!count) return null;
+    const levels = new Float32Array(count);
+    let loudest = 0;
+    for (let w = 0; w < count; w++) {
+        levels[w] = rms(samples, w * size, size);
+        if (levels[w] > loudest) loudest = levels[w];
+    }
+    const gate = Math.max(floor, loudest * 10 ** (thresholdDb / 20));
+    let first = -1;
+    let last = -1;
+    for (let w = 0; w < count; w++) {
+        if (levels[w] >= gate) {
+            if (first < 0) first = w;
+            last = w;
+        }
+    }
+    if (first < 0) return null;
+    const duration = samples.length / sampleRate;
+    return {
+        start: Math.max(0, (first * size) / sampleRate - padStart),
+        end: Math.min(duration, ((last + 1) * size) / sampleRate + padEnd),
+    };
+}
+
 /** Encode mono samples as an in-memory 16-bit PCM WAV Blob. */
 export function encodeWav(samples, sampleRate) {
     const buffer = new ArrayBuffer(44 + samples.length * 2);

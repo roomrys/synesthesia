@@ -1,7 +1,7 @@
 // End-to-end: load extract.html in an iframe, open a generated audio file,
 // and check that notes are found, shown and playable.
 
-import { test, assert, assertEqual } from './runner.js';
+import { test, assert, assertEqual, assertClose } from './runner.js';
 import { sequence, wavBytes } from './signals.js';
 
 function waitFor(check, timeoutMs = 15000, what = 'condition') {
@@ -53,6 +53,16 @@ test('page: opening an audio file finds notes and enables playback and saving', 
         // Detector settings are rendered from the extractor's list.
         assert(!doc.getElementById('settingsPanel').hidden, 'settings panel hidden');
         assertEqual(doc.querySelectorAll('#settingsGrid input[type="range"]').length, 6, 'sliders:');
+
+        // The time crop starts fitted to the audio: 0.3 s of silence at each end,
+        // minus 50 ms padding at the start and plus 200 ms at the end.
+        const { state } = frame.contentWindow.extractor;
+        assertClose(state.crop.start, 0.25, 0.03, 'crop start:');
+        assertClose(state.crop.end, 1.7, 0.03, 'crop end:');
+        doc.getElementById('cropResetButton').click();
+        assertClose(state.crop.start, 0, 1e-9, 'reset start:');
+        doc.getElementById('cropFitButton').click();
+        assertClose(state.crop.start, 0.25, 0.03, 'fit start:');
 
         // The pitch crop defaults to the detected range.
         const pitchDisplay = doc.getElementById('pitchDisplay');

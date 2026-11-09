@@ -1,5 +1,5 @@
 import { test, assert, assertClose } from './runner.js';
-import { resample, resampleFast, rms } from '../js/extract/dsp.js';
+import { findAudibleRange, resample, resampleFast, rms } from '../js/extract/dsp.js';
 import { sequence } from './signals.js';
 
 function zeroCrossingHz(x, sr) {
@@ -17,6 +17,21 @@ for (const [name, fn] of [['resample (JS)', resample], ['resampleFast', resample
         assertClose(rms(y), rms(x), 0.02);
     });
 }
+
+test('dsp: audible range skips leading and trailing silence, with padding', () => {
+    const x = sequence([{ seconds: 2 }, { midi: 69, seconds: 1 }, { seconds: 0.5 }, { midi: 72, seconds: 1 }, { seconds: 3 }], 48000, { noise: 0.0005 });
+    const range = findAudibleRange(x, 48000);
+    assertClose(range.start, 2 - 0.05, 0.03, 'start');
+    assertClose(range.end, 4.5 + 0.2, 0.03, 'end');
+});
+
+test('dsp: audible range of silence is null; padding stays inside the clip', () => {
+    assert(findAudibleRange(new Float32Array(48000), 48000) === null, 'silence should be null');
+    const x = sequence([{ midi: 69, seconds: 1 }], 48000);
+    const range = findAudibleRange(x, 48000);
+    assertClose(range.start, 0, 1e-9, 'start');
+    assertClose(range.end, 1, 1e-9, 'end');
+});
 
 test('dsp: rms of silence is 0', () => {
     assert(rms(new Float32Array(100)) === 0);

@@ -4,6 +4,7 @@ import { getConfig, load, loadAll, loadImpl, registry } from './registry.js';
 import { runExtractor } from './extractors/index.js';
 import { cropNotes, filterRange, shiftNotes, sortNotes } from './noteset.js';
 import { midiToName } from './music.js';
+import { findAudibleRange } from './dsp.js';
 import { analysisBlob, buildAnalysis, summarizeStats } from './analysis.js';
 import { Player } from './player.js';
 import { Timeline } from './timeline.js';
@@ -28,7 +29,7 @@ const el = {
     speed: $('speed'), speedDisplay: $('speedDisplay'),
     timeDisplay: $('timeDisplay'), songVolume: $('songVolume'), notesVolume: $('notesVolume'),
     followPlayhead: $('followPlayhead'), cropDisplay: $('cropDisplay'), cropStartButton: $('cropStartButton'),
-    cropEndButton: $('cropEndButton'), cropResetButton: $('cropResetButton'),
+    cropEndButton: $('cropEndButton'), cropResetButton: $('cropResetButton'), cropFitButton: $('cropFitButton'),
     titleInput: $('titleInput'), saveButton: $('saveButton'), loadButton: $('loadButton'),
     folderRow: $('folderRow'), folderName: $('folderName'), folderButton: $('folderButton'), saveStatus: $('saveStatus'),
 };
@@ -141,6 +142,7 @@ function refresh() {
     for (const b of [el.playButton, el.cropStartButton, el.cropEndButton, el.cropResetButton]) {
         b.disabled = !hasTimeline || listening;
     }
+    el.cropFitButton.disabled = !state.clip || listening;
     el.playButton.textContent = player?.playing ? '❚❚ Pause' : '▶ Play';
     el.cropDisplay.textContent = hasTimeline
         ? `${formatTime(state.crop.start)} – ${formatTime(state.crop.end)} (${(state.crop.end - state.crop.start).toFixed(1)} s)`
@@ -154,6 +156,20 @@ function refresh() {
     }
     el.saveButton.disabled = !hasNotes || extracting;
     el.analysisButton.hidden = !state.noteSet?.pitchTrack || extracting;
+}
+
+/** Crop the time range to where the audio starts and ends; leaves it alone if all silent. */
+function fitCropToAudio() {
+    if (!state.clip) return;
+    const range = findAudibleRange(state.clip.samples, state.clip.sampleRate);
+    if (range) {
+        setCrop(range.start, range.end);
+        player.seek(range.start);
+        timeline.setPlayhead(range.start);
+        el.timeDisplay.textContent = formatTime(range.start);
+    } else {
+        setStatus(el.audioStatus, 'The audio seems silent, so the crop was left as it is.');
+    }
 }
 
 function setCrop(start, end, { fromTimeline = false } = {}) {
@@ -251,6 +267,7 @@ async function useClip(clip) {
     timeline.setNotes([]);
     updateView();
     setCrop(0, clip.duration);
+    fitCropToAudio();
     el.clipInfo.textContent = `${formatTime(clip.duration, 0)} of audio in memory`;
     if (!el.titleInput.value) el.titleInput.value = defaultTitle();
     refresh();
@@ -609,6 +626,7 @@ async function main() {
     el.cropStartButton.addEventListener('click', () => setCrop(Math.min(player.currentTime, state.crop.end - 0.1), state.crop.end));
     el.cropEndButton.addEventListener('click', () => setCrop(state.crop.start, Math.max(player.currentTime, state.crop.start + 0.1)));
     el.cropResetButton.addEventListener('click', () => setCrop(0, duration()));
+    el.cropFitButton.addEventListener('click', fitCropToAudio);
     el.saveButton.addEventListener('click', save);
     el.loadButton.addEventListener('click', openNotes);
     el.folderButton.addEventListener('click', chooseFolder);
