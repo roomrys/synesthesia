@@ -88,8 +88,16 @@
                     </select></label>
                 <label>Contrast <input type="range" id="layerFloor" min="0" max="0.9" step="0.01" value="0.4" disabled></label>
                 <span class="hint" id="layerStatus"></span>
+                <span class="divider"></span>
+                <label class="check" title="E"><input type="checkbox" id="editToggle" disabled> Edit notes</label>
+                <button id="undoButton" disabled title="Cmd/Ctrl+Z">Undo</button>
+                <button id="redoButton" disabled title="Shift+Cmd/Ctrl+Z">Redo</button>
             </div>
             <p class="hint" id="layerHint" hidden></p>
+            <p class="hint" id="editHint" hidden>Editing: drag on empty space to add a note, drag a note to move it
+                (you'll hear its pitch), drag its ends to resize it. <kbd>Delete</kbd> removes the selected note,
+                <kbd>Esc</kbd> deselects, and <kbd>Cmd/Ctrl+Z</kbd> undoes. Scroll or use the top strip to move
+                around. Finding notes again replaces your edits.</p>
             <p class="hint">Scroll to zoom, drag to pan, click to jump. Drag the yellow handles to crop: the vertical
                 ones set the time, the horizontal ones set the lowest and highest notes kept. Press
                 <kbd>[</kbd> and <kbd>]</kbd> to set the time crop at the playhead. <kbd>Space</kbd> plays and pauses,

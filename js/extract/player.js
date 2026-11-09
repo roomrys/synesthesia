@@ -42,6 +42,12 @@ export class Player {
         this.ctx.createMediaElementSource(this.audio).connect(this.songGain);
     }
 
+    /** Play one short note now, to preview a pitch while editing. */
+    audition(midi, velocity = 0.8) {
+        if (this.ctx.state === 'suspended') this.ctx.resume();
+        this.voice.scheduleNote({ midi, start: 0, duration: 0.3, velocity }, this.ctx.currentTime + 0.01);
+    }
+
     /** @param {import('./types.js').AudioClip|null} clip */
     setClip(clip) {
         this.pause();

@@ -5,6 +5,11 @@
 // Mouse: scroll to zoom, horizontal scroll or drag to pan, click to jump.
 // Yellow handles crop: vertical ones set the time range, horizontal ones set
 // the pitch range (notes kept). Drag in the overview to move the view.
+//
+// In edit mode, dragging in the piano roll edits notes instead of panning:
+// drag empty space to add a note, drag a note to move it, drag its ends to
+// resize it. The timeline changes the note objects in place and reports
+// through onEditStart (before the first change, for undo) and onEdit (after).
 
 import { midiToName, noteColor, pitchClass } from './music.js';
 
@@ -16,6 +21,8 @@ const HANDLE_HIT = 7;
 const BLOCK = 256;
 const MIN_SPAN = 0.5;
 const SHARPS = new Set([1, 3, 6, 8, 10]);
+const EDGE_HIT = 5;          // pixels at each end of a note that resize it
+const MIN_NOTE = 0.03;       // shortest note you can draw, in seconds
 
 const COLORS = {
     background: '#0d0d12',
@@ -29,6 +36,7 @@ const COLORS = {
     outside: 'rgba(0, 0, 0, 0.6)',
     outsideLayer: 'rgba(0, 0, 0, 0.25)',
     playhead: '#ffffff',
+    selected: '#ffffff',
     view: 'rgba(255, 255, 255, 0.7)',
     pitch: 'rgba(255, 255, 255, 0.45)',
     rejected: '#c8c8ff',
@@ -63,12 +71,17 @@ function niceStep(span, pixels) {
 }
 
 export class Timeline {
-    constructor(canvas, { onSeek, onCropChange, onPitchCropChange } = {}) {
+    constructor(canvas, { onSeek, onCropChange, onPitchCropChange, onEditStart, onEdit, onAudition } = {}) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         this.onSeek = onSeek;
         this.onCropChange = onCropChange;
         this.onPitchCropChange = onPitchCropChange;
+        this.onEditStart = onEditStart;   // () before a note is changed
+        this.onEdit = onEdit;             // () after a note was added, moved or resized
+        this.onAudition = onAudition;     // (midi) to preview a pitch while editing
+        this.editing = false;
+        this.selected = null;             // the selected note while editing
         this.pitchCrop = { min: 40, max: 88 };   // kept notes, inclusive MIDI
         this.clip = null;
         this.duration = 0;
@@ -109,12 +122,24 @@ export class Timeline {
 
     setNotes(notes, pitchTrack = null) {
         this.notes = notes;
+        if (!notes.includes(this.selected)) this.selected = null;
         this.pitchTrack = pitchTrack;
         const end = notes.reduce((m, n) => Math.max(m, n.start + n.duration), 0);
         if (end > this.duration) {
             this.duration = end;
             if (!this.clip) this.view.end = Math.max(this.view.end, end);
         }
+        this.draw();
+    }
+
+    setEditing(on) {
+        this.editing = on;
+        if (!on) this.selected = null;
+        this.draw();
+    }
+
+    select(note) {
+        this.selected = note;
         this.draw();
     }
 
@@ -195,6 +220,8 @@ export class Timeline {
     get rowHeight() { return this.rollHeight / (this.maxMidi - this.minMidi + 1); }
     get pitchCropTopY() { return this.midiToY(this.pitchCrop.max); }
     get pitchCropBottomY() { return this.midiToY(this.pitchCrop.min) + this.rowHeight; }
+    /** The MIDI row under y. */
+    rowAt(y) { return this.maxMidi - Math.floor((y - this.rollTop) / this.rowHeight); }
     /** Nearest row boundary to y, as the MIDI note just above it. */
     boundaryMidiAt(y) { return this.maxMidi - Math.round((y - this.rollTop) / this.rowHeight) + 1; }
 
@@ -403,6 +430,13 @@ export class Timeline {
                 ctx.fillText(midiToName(n.midi), x + 3, y + rowH / 2 + 3.5);
             }
         }
+        const sel = this.selected;
+        if (sel) {
+            const x = this.timeToX(sel.start);
+            ctx.strokeStyle = COLORS.selected;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x - 1, this.midiToY(sel.midi), Math.max(2, this.timeToX(sel.start + sel.duration) - x) + 2, rowH);
+        }
         ctx.restore();
     }
 
@@ -580,6 +614,23 @@ export class Timeline {
         return best ? best[0] : null;
     }
 
+    /** The note under (x, y) and which part: 'start' | 'end' (resize) | 'move'. */
+    noteAt(x, y) {
+        if (y < this.rollTop || x < GUTTER) return null;
+        const midi = this.rowAt(y);
+        for (let i = this.notes.length - 1; i >= 0; i--) {
+            const n = this.notes[i];
+            if (n.midi !== midi) continue;
+            const x1 = this.timeToX(n.start);
+            const x2 = this.timeToX(n.start + n.duration);
+            if (x < x1 - 2 || x > x2 + 2) continue;
+            const edges = x2 - x1 >= EDGE_HIT * 3;
+            const part = edges && x - x1 < EDGE_HIT ? 'start' : edges && x2 - x < EDGE_HIT ? 'end' : 'move';
+            return { note: n, part };
+        }
+        return null;
+    }
+
     localPoint(e) {
         const rect = this.canvas.getBoundingClientRect();
         return { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -588,6 +639,7 @@ export class Timeline {
     pointerDown(e) {
         if (!this.duration) return;
         const { x, y } = this.localPoint(e);
+        if (this.editing && e.button === 0 && this.editPointerDown(e, x, y)) return;
         const handle = this.hitHandle(x, y);
         if (!handle && x < GUTTER) return;
         try { this.canvas.setPointerCapture(e.pointerId); } catch { /* synthetic pointer: drag still works */ }
@@ -602,12 +654,21 @@ export class Timeline {
     pointerMove(e) {
         const { x, y } = this.localPoint(e);
         if (!this.drag) {
+            const hit = this.editing && this.duration ? this.noteAt(x, y) : null;
+            if (hit) {
+                this.canvas.style.cursor = hit.part === 'move' ? 'move' : 'ew-resize';
+                return;
+            }
             const handle = this.duration ? this.hitHandle(x, y) : null;
-            this.canvas.style.cursor = !handle ? 'default' : handle.startsWith('pitch') ? 'ns-resize' : 'ew-resize';
+            const inRoll = y >= this.rollTop && x >= GUTTER;
+            this.canvas.style.cursor = handle ? (handle.startsWith('pitch') ? 'ns-resize' : 'ew-resize')
+                : this.editing && inRoll ? 'crosshair' : 'default';
             return;
         }
         const d = this.drag;
-        if (d.type === 'pitch') {
+        if (d.type === 'note' || d.type === 'create') {
+            this.editPointerMove(d, x, y);
+        } else if (d.type === 'pitch') {
             const above = Math.max(this.minMidi, Math.min(this.maxMidi + 1, this.boundaryMidiAt(y)));
             const { min, max } = this.pitchCrop;
             const next = d.handle === 'pitchMax'
@@ -640,10 +701,77 @@ export class Timeline {
     pointerUp(e) {
         const d = this.drag;
         this.drag = null;
+        if (d?.type === 'note' || d?.type === 'create') {
+            if (d.changed) this.onEdit?.();
+            else if (d.type === 'create') {
+                this.select(null);
+                this.onSeek?.(Math.max(0, Math.min(this.duration, d.t0)));
+            }
+            return;
+        }
         if (d?.type === 'main' && !d.moved) {
             const { x } = this.localPoint(e);
             this.onSeek?.(Math.max(0, Math.min(this.duration, this.xToTime(x))));
         }
+    }
+
+    // ----- note editing -----
+
+    /** Start an edit drag if (x, y) is on a note or empty piano roll. Returns true if it did. */
+    editPointerDown(e, x, y) {
+        const hit = this.noteAt(x, y);
+        if (!hit) {
+            // Crop handles still work in edit mode; otherwise empty roll space draws a note.
+            if (this.hitHandle(x, y) || y < this.rollTop || x < GUTTER) return false;
+        }
+        try { this.canvas.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
+        if (hit) {
+            const n = hit.note;
+            this.select(n);
+            this.onAudition?.(n.midi);
+            this.drag = { type: 'note', note: n, part: hit.part, startX: x, startRow: this.rowAt(y),
+                orig: { start: n.start, duration: n.duration, midi: n.midi }, changed: false };
+        } else {
+            this.drag = { type: 'create', startX: x, t0: this.xToTime(x), midi: this.rowAt(y), note: null, changed: false };
+        }
+        return true;
+    }
+
+    editPointerMove(d, x, y) {
+        if (!d.changed && Math.abs(x - d.startX) <= 3 && (d.type === 'create' || this.rowAt(y) === d.startRow)) return;
+        if (!d.changed) {
+            this.onEditStart?.();
+            d.changed = true;
+            if (d.type === 'create') {
+                d.note = { midi: d.midi, start: d.t0, duration: MIN_NOTE, velocity: 0.8 };
+                this.notes.push(d.note);
+                this.select(d.note);
+                this.onAudition?.(d.midi);
+            }
+        }
+        const t = Math.max(0, Math.min(this.duration, this.xToTime(x)));
+        if (d.type === 'create') {
+            d.note.start = Math.min(d.t0, t);
+            d.note.duration = Math.max(MIN_NOTE, Math.abs(t - d.t0));
+        } else {
+            const n = d.note;
+            const { start, duration, midi } = d.orig;
+            const dt = ((x - d.startX) / this.plotWidth) * (this.view.end - this.view.start);
+            if (d.part === 'move') {
+                n.start = Math.max(0, Math.min(this.duration - duration, start + dt));
+                const next = Math.max(this.minMidi, Math.min(this.maxMidi, midi + this.rowAt(y) - d.startRow));
+                if (next !== n.midi) {
+                    n.midi = next;
+                    this.onAudition?.(next);
+                }
+            } else if (d.part === 'start') {
+                n.start = Math.max(0, Math.min(start + duration - MIN_NOTE, start + dt));
+                n.duration = start + duration - n.start;
+            } else {
+                n.duration = Math.max(MIN_NOTE, Math.min(this.duration - start, duration + dt));
+            }
+        }
+        this.draw();
     }
 
     moveViewTo(t) {

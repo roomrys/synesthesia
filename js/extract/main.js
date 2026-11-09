@@ -42,6 +42,7 @@ const el = {
     followPlayhead: $('followPlayhead'), cropDisplay: $('cropDisplay'), cropStartButton: $('cropStartButton'),
     cropEndButton: $('cropEndButton'), cropResetButton: $('cropResetButton'), cropFitButton: $('cropFitButton'),
     titleInput: $('titleInput'), saveButton: $('saveButton'), loadButton: $('loadButton'),
+    editToggle: $('editToggle'), undoButton: $('undoButton'), redoButton: $('redoButton'), editHint: $('editHint'),
     layerSelect: $('layerSelect'), layerFloor: $('layerFloor'), layerStatus: $('layerStatus'), layerHint: $('layerHint'),
     folderRow: $('folderRow'), folderName: $('folderName'), folderButton: $('folderButton'), saveStatus: $('saveStatus'),
 };
@@ -55,6 +56,8 @@ const state = {
     live: null,          // the live source currently listening
     extraction: null,    // AbortController while extracting
     rerun: false,        // run again when the current extraction stops
+    history: [],         // note lists before each edit, for undo
+    future: [],          // note lists undone, for redo
     layers: null,        // debug layers for the clip, from computeLayers
     layerJob: null,      // AbortController while computing them
 };
@@ -160,6 +163,10 @@ function refresh() {
     }
     el.cropFitButton.disabled = !state.clip || listening;
     el.playButton.textContent = player?.playing ? '❚❚ Pause' : '▶ Play';
+    el.editToggle.disabled = !state.noteSet || listening;
+    el.editHint.hidden = !el.editToggle.checked;
+    el.undoButton.disabled = !state.history.length;
+    el.redoButton.disabled = !state.future.length;
     el.cropDisplay.textContent = hasTimeline
         ? `${formatTime(state.crop.start)} – ${formatTime(state.crop.end)} (${(state.crop.end - state.crop.start).toFixed(1)} s)`
         : '–';
@@ -282,6 +289,7 @@ async function useClip(clip) {
     timeline.setClip(clip);
     timeline.setNotes([]);
     resetLayers();
+    resetHistory();
     updateView();
     setCrop(0, clip.duration);
     fitCropToAudio();
@@ -301,6 +309,8 @@ function clearAudio() {
     timeline.setClip(null, 0);
     timeline.setNotes([]);
     resetLayers();
+    resetHistory();
+    setEditing(false);
     updateView();
     setStatus(el.audioStatus, 'Audio cleared.');
     setStatus(el.notesStatus);
@@ -465,6 +475,8 @@ async function extract() {
         state.extraction.abort();
         return;
     }
+    if (state.history.length && !confirm('Find notes again? This replaces the notes you edited.')) return;
+    resetHistory();
     const controller = new AbortController();
     state.extraction = controller;
     el.progress.value = 0;
@@ -503,11 +515,84 @@ async function extract() {
  */
 function showNotes(noteSet, pitchCrop = null) {
     state.noteSet = noteSet;
+    resetHistory();
     timeline.setNotes(noteSet.notes, noteSet.pitchTrack ?? null);
     if (pitchCrop) setPitchCrop(pitchCrop.min, pitchCrop.max, { moved: true });
     else if (!state.pitchCropMoved || !state.pitchCrop) fitPitchCrop();
     else setPitchCrop(state.pitchCrop.min, state.pitchCrop.max);
     updateView();
+}
+
+// ----- editing notes -----
+
+const MAX_HISTORY = 200;
+const copyNotes = (notes) => notes.map((n) => ({ ...n }));
+
+function resetHistory() {
+    state.history = [];
+    state.future = [];
+}
+
+function setEditing(on) {
+    el.editToggle.checked = on && Boolean(state.noteSet);
+    timeline.setEditing(el.editToggle.checked);
+    refresh();
+}
+
+/** Called by the timeline before it changes a note (and before a delete): remember the notes for undo. */
+function beginEdit() {
+    state.history.push(copyNotes(state.noteSet.notes));
+    if (state.history.length > MAX_HISTORY) state.history.shift();
+    state.future = [];
+}
+
+/** After an edit: re-sort, keep the edited note inside the pitch crop, and update playback. */
+function notesEdited() {
+    const selected = timeline.selected;
+    state.noteSet.notes = sortNotes(state.noteSet.notes);
+    timeline.setNotes(state.noteSet.notes, state.noteSet.pitchTrack ?? null);
+    timeline.select(selected);
+    const crop = state.pitchCrop;
+    if (!crop) {
+        const found = detectedRange(state.noteSet.notes);
+        if (found) setPitchCrop(found.min, found.max, { moved: false });
+    } else if (selected && (selected.midi < crop.min || selected.midi > crop.max)) {
+        setPitchCrop(Math.min(crop.min, selected.midi), Math.max(crop.max, selected.midi));
+    } else {
+        player.setNotes(keptNotes());
+    }
+    updateView();
+    refresh();
+}
+
+function deleteSelected() {
+    const note = timeline.selected;
+    if (!note || !state.noteSet) return;
+    beginEdit();
+    state.noteSet.notes = state.noteSet.notes.filter((n) => n !== note);
+    timeline.select(null);
+    notesEdited();
+}
+
+/** Swap the current notes for a saved list (undo/redo). */
+function restoreNotes(notes) {
+    state.noteSet.notes = notes;
+    timeline.setNotes(notes, state.noteSet.pitchTrack ?? null);
+    player.setNotes(keptNotes());
+    updateView();
+    refresh();
+}
+
+function undo() {
+    if (!state.history.length) return;
+    state.future.push(copyNotes(state.noteSet.notes));
+    restoreNotes(state.history.pop());
+}
+
+function redo() {
+    if (!state.future.length) return;
+    state.history.push(copyNotes(state.noteSet.notes));
+    restoreNotes(state.future.pop());
 }
 
 // ----- playback -----
@@ -643,8 +728,21 @@ async function exportAnalysis() {
 function onKey(e) {
     const tag = e.target.tagName;
     if (tag === 'INPUT' && e.target.type === 'text') return;
-    if (tag === 'SELECT' || tag === 'TEXTAREA' || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.key === ' ') {
+    if (tag === 'SELECT' || tag === 'TEXTAREA') return;
+    if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) {
+        e.preventDefault();
+        if (e.key.toLowerCase() === 'y' || e.shiftKey) redo(); else undo();
+        return;
+    }
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (el.editToggle.checked && (e.key === 'Delete' || e.key === 'Backspace')) {
+        e.preventDefault();
+        deleteSelected();
+    } else if (e.key === 'Escape') {
+        timeline.select(null);
+    } else if (e.key === 'e') {
+        setEditing(!el.editToggle.checked);
+    } else if (e.key === ' ') {
         e.preventDefault();
         togglePlay();
     } else if (e.key === '[') {
@@ -671,6 +769,9 @@ async function main() {
         onSeek: seek,
         onCropChange: (start, end) => setCrop(start, end, { fromTimeline: true }),
         onPitchCropChange: (min, max) => setPitchCrop(min, max, { fromTimeline: true }),
+        onEditStart: beginEdit,
+        onEdit: notesEdited,
+        onAudition: (midi) => player.audition(midi),
     });
     player = new Player(voiceImpl);
     player.onStop = () => refresh();
@@ -706,6 +807,9 @@ async function main() {
     el.cropEndButton.addEventListener('click', () => setCrop(state.crop.start, Math.max(player.currentTime, state.crop.start + 0.1)));
     el.cropResetButton.addEventListener('click', () => setCrop(0, duration()));
     el.cropFitButton.addEventListener('click', fitCropToAudio);
+    el.editToggle.addEventListener('change', () => setEditing(el.editToggle.checked));
+    el.undoButton.addEventListener('click', undo);
+    el.redoButton.addEventListener('click', redo);
     el.layerSelect.addEventListener('change', () => { saveLayerPrefs(); updateLayer(); });
     el.layerFloor.addEventListener('input', () => { timeline.setLayerFloor(Number(el.layerFloor.value)); saveLayerPrefs(); });
     el.saveButton.addEventListener('click', save);

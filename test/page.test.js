@@ -116,6 +116,44 @@ test('page: opening an audio file finds notes and enables playback and saving', 
         layerSelect.dispatchEvent(new Event('change'));
         assertEqual(timeline.layer, null, 'layer after None:');
 
+        // Edit mode: draw a D4 in the leading silence, move it, delete it, and undo.
+        const editToggle = doc.getElementById('editToggle');
+        assert(!editToggle.disabled, 'edit toggle disabled');
+        editToggle.click();
+        assert(timeline.editing, 'timeline not in edit mode');
+        const row = (midi) => timeline.midiToY(midi) + timeline.rowHeight / 2;
+        pointer('pointerdown', timeline.timeToX(0.02), row(62));
+        pointer('pointermove', timeline.timeToX(0.1), row(62));
+        pointer('pointermove', timeline.timeToX(0.2), row(62));
+        pointer('pointerup', timeline.timeToX(0.2), row(62));
+        const notes = () => state.noteSet.notes;
+        assertEqual(notes().length, 4, 'notes after drawing:');
+        assertEqual(notes()[0].midi, 62, 'drawn pitch:');
+        assertClose(notes()[0].duration, 0.18, 0.02, 'drawn length:');
+        assertEqual(pitchDisplay.textContent, 'D4 – B4 (4 of 4)', 'pitch crop grows to keep the new note:');
+        assertEqual(player.notes.length, 4, 'notes played after drawing:');
+
+        // Drag the middle of the note up one row (to D#4).
+        const mid = timeline.timeToX(0.11);
+        pointer('pointerdown', mid, row(62));
+        pointer('pointermove', mid, row(63));
+        pointer('pointerup', mid, row(63));
+        assertEqual(notes()[0].midi, 63, 'moved pitch:');
+        assertClose(notes()[0].start, 0.02, 0.02, 'moved start:');
+
+        const key = (k, extra = {}) => doc.body.dispatchEvent(new frame.contentWindow.KeyboardEvent('keydown', { key: k, bubbles: true, ...extra }));
+        key('Backspace');
+        assertEqual(notes().length, 3, 'notes after delete:');
+        doc.getElementById('undoButton').click();
+        assertEqual(notes().length, 4, 'notes after undo:');
+        assertEqual(notes()[0].midi, 63, 'undo restores the moved note:');
+        key('z', { metaKey: true });
+        assertEqual(notes()[0].midi, 62, 'second undo restores the pitch:');
+        key('z', { metaKey: true, shiftKey: true });
+        assertEqual(notes()[0].midi, 63, 'redo:');
+        key('e');
+        assert(!timeline.editing, 'E should leave edit mode');
+
         doc.getElementById('playButton').click();
         await waitFor(() => doc.getElementById('playButton').textContent.includes('Pause'), 3000, 'playing');
         await new Promise((r) => setTimeout(r, 300));

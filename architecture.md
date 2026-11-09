@@ -105,6 +105,15 @@ layer. There are two layers:
   classical polyphonic detection. Fainter ghosts can appear 12 or 19 semitones
   above a real note.
 
+**Edit notes** turns the piano roll into a note editor, to try where notes
+really belong: drag on empty space to add a note, drag a note to move it (its
+pitch plays as it changes rows), drag its ends to resize, and press Delete to
+remove the selected note. Undo and redo keep up to 200 steps. The timeline
+changes note objects in place and calls `onEditStart` (main.js copies the notes
+for undo) and `onEdit` (main.js re-sorts, keeps the edited note inside the pitch
+crop, and updates playback). Edited notes are saved like detected ones. Finding
+notes again replaces them, after a confirmation.
+
 The layers are computed when first shown and dropped with the clip. Below about
 C3, the 256 ms window can't fully separate neighbouring semitones, so low notes
 look smeared up and down. A multi-resolution transform (CQT) would fix that.
@@ -379,7 +388,7 @@ js/
     noteset.js             sort, range filter, crop            (pure)
     analysis.js            debug export of per-frame numbers   (pure)
     player.js              song + voice playback, loop, speed
-    timeline.js            canvas: waveform, piano roll, crop, playhead
+    timeline.js            canvas: waveform, piano roll, crop, playhead, note editing
     spectrum.js            FFT, spectrogram and harmonic-sum layers (pure)
     capture-worklet.js     AudioWorklet for live sources
     sources/               live.js (shared), tab.js, file.js
