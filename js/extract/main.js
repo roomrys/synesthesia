@@ -8,12 +8,23 @@ import { findAudibleRange } from './dsp.js';
 import { analysisBlob, buildAnalysis, summarizeStats } from './analysis.js';
 import { Player } from './player.js';
 import { Timeline } from './timeline.js';
+import { computeLayers } from './spectrum.js';
 
 const MAX_LISTEN_SECONDS = 20 * 60;
 const DETECT_RANGE = { min: 33, max: 100 };   // A1..E7: detection always covers this
 const EMPTY_VIEW = { min: 40, max: 88 };      // E2..E6: rows shown before any notes
 const VIEW_PADDING = 3;                       // semitones shown around the detected notes
 const SPEED = { min: 0.25, max: 1.5 };
+const LAYER_VIEW = { min: 40, max: 88 };      // rows shown at least, with a debug layer on
+const LAYER_KEY = 'synesthesia.layer';
+const LAYER_HINTS = {
+    spectrogram: 'Energy at each pitch over time; brighter is louder. One played note lights up its own row '
+        + 'and its overtones 12, 19, 24 and 28 semitones above, so a note looks like a stack and a chord like '
+        + 'several overlapping stacks. Detected notes are outlined.',
+    salience: 'For each pitch, the energy at its overtones added up, so each note\'s stack collapses onto its own '
+        + 'row. Chords show as several bright rows at once. Fainter ghosts can appear 12 or 19 semitones above '
+        + 'a note. Detected notes are outlined.',
+};
 
 const $ = (id) => document.getElementById(id);
 const el = {
@@ -31,6 +42,7 @@ const el = {
     followPlayhead: $('followPlayhead'), cropDisplay: $('cropDisplay'), cropStartButton: $('cropStartButton'),
     cropEndButton: $('cropEndButton'), cropResetButton: $('cropResetButton'), cropFitButton: $('cropFitButton'),
     titleInput: $('titleInput'), saveButton: $('saveButton'), loadButton: $('loadButton'),
+    layerSelect: $('layerSelect'), layerFloor: $('layerFloor'), layerStatus: $('layerStatus'), layerHint: $('layerHint'),
     folderRow: $('folderRow'), folderName: $('folderName'), folderButton: $('folderButton'), saveStatus: $('saveStatus'),
 };
 
@@ -43,6 +55,8 @@ const state = {
     live: null,          // the live source currently listening
     extraction: null,    // AbortController while extracting
     rerun: false,        // run again when the current extraction stops
+    layers: null,        // debug layers for the clip, from computeLayers
+    layerJob: null,      // AbortController while computing them
 };
 
 let config, extractor, codec, storage, player, timeline;
@@ -92,11 +106,13 @@ function detectedRange(notes) {
 /** Rows shown in the piano roll: the detected notes plus padding, and the pitch crop. */
 function updateView() {
     const found = detectedRange(state.noteSet?.notes ?? []);
-    if (!found) return timeline.setRange(EMPTY_VIEW.min, EMPTY_VIEW.max);
+    const base = el.layerSelect.value ? LAYER_VIEW : EMPTY_VIEW;
+    if (!found) return timeline.setRange(base.min, base.max);
     const crop = state.pitchCrop ?? found;
+    const layerOn = Boolean(el.layerSelect.value);
     timeline.setRange(
-        Math.max(DETECT_RANGE.min, Math.min(found.min, crop.min) - VIEW_PADDING),
-        Math.min(DETECT_RANGE.max, Math.max(found.max, crop.max) + VIEW_PADDING),
+        Math.max(DETECT_RANGE.min, Math.min(found.min, crop.min, layerOn ? base.min : Infinity) - VIEW_PADDING),
+        Math.min(DETECT_RANGE.max, Math.max(found.max, crop.max, layerOn ? base.max : -Infinity) + VIEW_PADDING),
     );
 }
 
@@ -265,6 +281,7 @@ async function useClip(clip) {
     player.setNotes([]);
     timeline.setClip(clip);
     timeline.setNotes([]);
+    resetLayers();
     updateView();
     setCrop(0, clip.duration);
     fitCropToAudio();
@@ -283,10 +300,69 @@ function clearAudio() {
     player.setNotes([]);
     timeline.setClip(null, 0);
     timeline.setNotes([]);
+    resetLayers();
     updateView();
     setStatus(el.audioStatus, 'Audio cleared.');
     setStatus(el.notesStatus);
     refresh();
+}
+
+// ----- debug layers -----
+
+function loadLayerPrefs() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(LAYER_KEY) ?? '{}');
+        if (saved.kind in LAYER_HINTS) el.layerSelect.value = saved.kind;
+        if (typeof saved.floor === 'number') el.layerFloor.value = saved.floor;
+    } catch { /* storage unavailable: use the defaults */ }
+}
+
+function saveLayerPrefs() {
+    try {
+        localStorage.setItem(LAYER_KEY, JSON.stringify({ kind: el.layerSelect.value, floor: Number(el.layerFloor.value) }));
+    } catch { /* storage unavailable */ }
+}
+
+/** Drop the layers of the previous clip (and stop computing them). */
+function resetLayers() {
+    state.layerJob?.abort();
+    state.layerJob = null;
+    state.layers = null;
+    updateLayer();
+}
+
+/** Show the chosen layer, computing the layers for this clip the first time one is needed. */
+function updateLayer() {
+    const kind = el.layerSelect.value;
+    el.layerFloor.disabled = !kind;
+    el.layerHint.hidden = !kind;
+    el.layerHint.textContent = LAYER_HINTS[kind] ?? '';
+    if (!state.layerJob) el.layerStatus.textContent = '';
+    updateView();
+    if (!kind || !state.clip) return timeline.setLayer(null);
+    if (state.layers) return timeline.setLayer(state.layers, kind);
+    if (!state.layerJob) computeLayerData();
+}
+
+async function computeLayerData() {
+    const job = new AbortController();
+    const clip = state.clip;
+    state.layerJob = job;
+    el.layerStatus.textContent = 'Working…';
+    try {
+        const layers = await computeLayers(clip.samples, clip.sampleRate, {
+            signal: job.signal,
+            onProgress: (p) => { el.layerStatus.textContent = `Working… ${Math.round(p * 100)}%`; },
+        });
+        if (state.layerJob !== job) return;
+        state.layers = layers;
+        state.layerJob = null;
+        updateLayer();
+    } catch (err) {
+        if (state.layerJob !== job) return;
+        state.layerJob = null;
+        if (err.name !== 'AbortError') el.layerStatus.textContent = `The layer failed: ${err.message}`;
+    }
 }
 
 // ----- extraction -----
@@ -603,6 +679,9 @@ async function main() {
     player.setNotesVolume(Number(el.notesVolume.value));
 
     await Promise.all([setupSources(), setupExtractors(), setupStorage()]);
+    loadLayerPrefs();
+    timeline.setLayerFloor(Number(el.layerFloor.value));
+    updateLayer();
 
     el.stopButton.addEventListener('click', () => stopLive());
     el.clearButton.addEventListener('click', clearAudio);
@@ -627,6 +706,8 @@ async function main() {
     el.cropEndButton.addEventListener('click', () => setCrop(state.crop.start, Math.max(player.currentTime, state.crop.start + 0.1)));
     el.cropResetButton.addEventListener('click', () => setCrop(0, duration()));
     el.cropFitButton.addEventListener('click', fitCropToAudio);
+    el.layerSelect.addEventListener('change', () => { saveLayerPrefs(); updateLayer(); });
+    el.layerFloor.addEventListener('input', () => { timeline.setLayerFloor(Number(el.layerFloor.value)); saveLayerPrefs(); });
     el.saveButton.addEventListener('click', save);
     el.loadButton.addEventListener('click', openNotes);
     el.folderButton.addEventListener('click', chooseFolder);

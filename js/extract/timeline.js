@@ -1,5 +1,6 @@
 // Canvas timeline: overview strip, waveform, piano roll (fretboard colours),
-// pitch track, crop handles and playhead.
+// pitch track, an optional debug layer (spectrogram or harmonic sum), crop
+// handles and playhead.
 //
 // Mouse: scroll to zoom, horizontal scroll or drag to pan, click to jump.
 // Yellow handles crop: vertical ones set the time range, horizontal ones set
@@ -26,11 +27,28 @@ const COLORS = {
     text: '#b8b8cc',
     crop: '#ffd400',
     outside: 'rgba(0, 0, 0, 0.6)',
+    outsideLayer: 'rgba(0, 0, 0, 0.25)',
     playhead: '#ffffff',
     view: 'rgba(255, 255, 255, 0.7)',
     pitch: 'rgba(255, 255, 255, 0.45)',
     rejected: '#c8c8ff',
 };
+
+const TILE_COLUMNS = 4096;   // canvases wider than this are split into tiles
+
+// Dark to bright: black, purple, red, orange, pale yellow (like "inferno").
+const LAYER_STOPS = [[0, 0, 0, 4], [0.25, 87, 16, 110], [0.5, 188, 55, 84], [0.75, 249, 142, 9], [1, 252, 255, 164]];
+const LAYER_LUT = (() => {
+    const lut = new Uint8ClampedArray(256 * 3);
+    for (let i = 0; i < 256; i++) {
+        const v = i / 255;
+        const k = Math.min(LAYER_STOPS.length - 2, Math.floor(v * (LAYER_STOPS.length - 1)));
+        const [a, b] = [LAYER_STOPS[k], LAYER_STOPS[k + 1]];
+        const t = (v - a[0]) / (b[0] - a[0]);
+        for (let c = 0; c < 3; c++) lut[i * 3 + c] = a[c + 1] + (b[c + 1] - a[c + 1]) * t;
+    }
+    return lut;
+})();
 
 function formatTime(t) {
     const m = Math.floor(t / 60);
@@ -63,6 +81,9 @@ export class Timeline {
         this.playhead = 0;
         this.follow = false;
         this.peakCache = new Map();
+        this.layer = null;        // { data, kind } from spectrum.js computeLayers
+        this.layerFloor = 0.4;    // values below this are hidden
+        this.layerTiles = null;
 
         new ResizeObserver(() => this.resize()).observe(canvas);
         canvas.addEventListener('pointerdown', (e) => this.pointerDown(e));
@@ -94,6 +115,20 @@ export class Timeline {
             this.duration = end;
             if (!this.clip) this.view.end = Math.max(this.view.end, end);
         }
+        this.draw();
+    }
+
+    /** Show a debug layer: `data` from computeLayers, `kind` 'spectrogram' | 'salience'. Null hides it. */
+    setLayer(data, kind) {
+        this.layer = data && kind ? { data, kind } : null;
+        this.layerTiles = null;
+        this.draw();
+    }
+
+    /** Hide layer values below `floor` (0–1); the rest is stretched to the full colour range. */
+    setLayerFloor(floor) {
+        this.layerFloor = floor;
+        this.layerTiles = null;
         this.draw();
     }
 
@@ -341,17 +376,25 @@ export class Timeline {
             ctx.globalAlpha = 1;
         }
 
+        this.renderLayer();
         this.renderPitchTrack();
 
-        // Notes.
+        // Notes: filled, or outlined over a debug layer so the energy underneath shows.
         ctx.textAlign = 'left';
         ctx.font = '10px system-ui, sans-serif';
+        ctx.lineWidth = 1.5;
         for (const n of this.notes) {
             if (n.start + n.duration < this.view.start || n.start > this.view.end) continue;
             const x = this.timeToX(n.start);
             const w = Math.max(2, this.timeToX(n.start + n.duration) - x);
             const y = this.midiToY(n.midi);
             ctx.globalAlpha = this.inPitchCrop(n.midi) ? 0.55 + 0.45 * n.velocity : 0.18;
+            if (this.layer) {
+                ctx.strokeStyle = noteColor(n.midi);
+                ctx.strokeRect(x + 0.75, y + 0.75, w - 1.5, Math.max(1, rowH - 1.5));
+                ctx.globalAlpha = 1;
+                continue;
+            }
             ctx.fillStyle = noteColor(n.midi);
             ctx.fillRect(x, y + 1, w, Math.max(2, rowH - 2));
             ctx.globalAlpha = 1;
@@ -361,6 +404,66 @@ export class Timeline {
             }
         }
         ctx.restore();
+    }
+
+    /** Canvases holding the layer as an image: one column per frame, highest pitch at the top. */
+    buildLayerTiles() {
+        const { data, kind } = this.layer;
+        const values = data[kind];
+        const { bins, frames } = data;
+        const floor = this.layerFloor;
+        const stretch = 255 / Math.max(1e-6, 1 - floor);
+        const tiles = [];
+        for (let c0 = 0; c0 < frames; c0 += TILE_COLUMNS) {
+            const w = Math.min(TILE_COLUMNS, frames - c0);
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = bins;
+            const ctx = canvas.getContext('2d');
+            const image = ctx.createImageData(w, bins);
+            const px = image.data;
+            for (let f = 0; f < w; f++) {
+                const base = (c0 + f) * bins;
+                for (let k = 0; k < bins; k++) {
+                    const v = Math.round((values[base + k] / 255 - floor) * stretch);
+                    if (v <= 0) continue;
+                    const i = ((bins - 1 - k) * w + f) * 4;
+                    const c = Math.min(255, v) * 3;
+                    px[i] = LAYER_LUT[c];
+                    px[i + 1] = LAYER_LUT[c + 1];
+                    px[i + 2] = LAYER_LUT[c + 2];
+                    px[i + 3] = Math.min(255, v * 1.6);
+                }
+            }
+            ctx.putImageData(image, 0, 0);
+            tiles.push({ canvas, first: c0, columns: w });
+        }
+        return tiles;
+    }
+
+    renderLayer() {
+        if (!this.layer) return;
+        const { data } = this.layer;
+        const low = Math.max(this.minMidi, data.minMidi);
+        const high = Math.min(this.maxMidi, data.maxMidi);
+        if (high < low) return;
+        this.layerTiles ??= this.buildLayerTiles();
+        const { ctx } = this;
+        const bps = data.binsPerSemitone;
+        const sy = data.bins - (high - data.minMidi + 1) * bps;
+        const sh = (high - low + 1) * bps;
+        const dy = this.midiToY(high);
+        const dh = (high - low + 1) * this.rowHeight;
+        ctx.imageSmoothingEnabled = true;
+        for (const tile of this.layerTiles) {
+            const ts = data.startSeconds + tile.first * data.hopSeconds;
+            const te = ts + tile.columns * data.hopSeconds;
+            const a = Math.max(ts, this.view.start);
+            const b = Math.min(te, this.view.end);
+            if (b <= a) continue;
+            const dx = this.timeToX(a);
+            ctx.drawImage(tile.canvas, (a - ts) / data.hopSeconds, sy, (b - a) / data.hopSeconds, sh, dx, dy, this.timeToX(b) - dx, dh);
+        }
     }
 
     renderPitchTrack() {
@@ -414,10 +517,13 @@ export class Timeline {
         const pBottom = this.pitchCropBottomY;
         const left = Math.max(GUTTER, cs);
         const right = Math.min(this.width, ce);
+        // Lighter over a debug layer, so energy outside the kept notes stays visible.
+        if (this.layer) ctx.fillStyle = COLORS.outsideLayer;
         if (right > left) {
             if (pTop > this.rollTop) ctx.fillRect(left, this.rollTop, right - left, pTop - this.rollTop);
             if (pBottom < bottom) ctx.fillRect(left, pBottom, right - left, bottom - pBottom);
         }
+        ctx.fillStyle = COLORS.outside;
         const os = this.overviewTimeToX(this.crop.start);
         const oe = this.overviewTimeToX(this.crop.end);
         ctx.fillRect(GUTTER, 0, os - GUTTER, OVERVIEW_H);

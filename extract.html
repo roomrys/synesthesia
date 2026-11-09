@@ -80,6 +80,16 @@
                 <span>Notes <span class="time" id="pitchDisplay">–</span></span>
                 <button id="pitchFitButton" disabled>Fit to notes</button>
             </div>
+            <div class="row">
+                <label>Debug layer <select id="layerSelect">
+                        <option value="">None</option>
+                        <option value="spectrogram">Spectrogram</option>
+                        <option value="salience">Harmonic sum</option>
+                    </select></label>
+                <label>Contrast <input type="range" id="layerFloor" min="0" max="0.9" step="0.01" value="0.4" disabled></label>
+                <span class="hint" id="layerStatus"></span>
+            </div>
+            <p class="hint" id="layerHint" hidden></p>
             <p class="hint">Scroll to zoom, drag to pan, click to jump. Drag the yellow handles to crop: the vertical
                 ones set the time, the horizontal ones set the lowest and highest notes kept. Press
                 <kbd>[</kbd> and <kbd>]</kbd> to set the time crop at the playhead. <kbd>Space</kbd> plays and pauses,

@@ -88,6 +88,26 @@ Detection always covers a wide pitch range (A1–E7). The pitch crop is an insta
 filter that needs no re-run: by default it fits the detected notes, it survives
 re-detection once you've moved it, and **Fit to notes** resets it. Notes outside
 the pitch crop are dimmed, not played back, and not saved.
+
+A **debug layer** (`spectrum.js`) can be drawn under the notes, on the same
+pitch rows, to show what a detector has to work with. The clip is resampled to
+16 kHz and peak-normalised, then analysed with a 4096-point Hann-windowed FFT
+every 10 ms (coarser for long clips). Each frame is mapped to three bins per
+semitone, and the levels are kept as bytes. Notes are drawn as outlines over the
+layer. There are two layers:
+
+- **Spectrogram:** the level at each pitch, from 80 dB below the peak to the
+  peak. One note shows up as a stack: its own row plus overtones 12, 19, 24 and
+  28 semitones above.
+- **Harmonic sum** (salience): for each pitch, the levels at its first 10
+  overtones added up, weighted 1/h. Each note's stack collapses onto its own
+  row, so a chord shows as several bright rows. This is the first step of
+  classical polyphonic detection. Fainter ghosts can appear 12 or 19 semitones
+  above a real note.
+
+The layers are computed when first shown and dropped with the clip. Below about
+C3, the 256 ms window can't fully separate neighbouring semitones, so low notes
+look smeared up and down. A multi-resolution transform (CQT) would fix that.
 6. A **Codec** encodes the notes, and **Storage** saves the file.
 
 Extraction runs on the whole clip, so you can see where the music starts before
@@ -360,6 +380,7 @@ js/
     analysis.js            debug export of per-frame numbers   (pure)
     player.js              song + voice playback, loop, speed
     timeline.js            canvas: waveform, piano roll, crop, playhead
+    spectrum.js            FFT, spectrogram and harmonic-sum layers (pure)
     capture-worklet.js     AudioWorklet for live sources
     sources/               live.js (shared), tab.js, file.js
     extractors/            index.js (runExtractor), yin.js     (pure)
@@ -430,7 +451,10 @@ python3 -m http.server 8000
 2. ✅ **Note range filter in the UI:** a vertical crop on the piano roll that
    defaults to the detected range and filters instantly. Possible extra: presets
    (guitar, voice, bass).
-3. 📝 **More sources and extractors:** mic, pitchy, Basic Pitch.
+3. 🚧 **More sources and extractors:** mic, pitchy, Basic Pitch. YIN finds one
+   note at a time, so chords and full mixes need a polyphonic extractor: Basic
+   Pitch, or a classical one built on the harmonic-sum layer. The spectrogram
+   and harmonic-sum debug layers are built.
 4. 📝 **Fretboard integration:** load note files (JSON and MIDI) into
    `index.html`, map notes to string and fret positions, and replay them in time
    (play, pause, scrub). Start by lighting every position of each note, then add

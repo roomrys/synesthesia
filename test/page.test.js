@@ -105,6 +105,17 @@ test('page: opening an audio file finds notes and enables playback and saving', 
         await waitFor(() => /Found \d+ notes/.test(notesStatus.textContent), 10000, 're-run after reset');
         assert(!doc.querySelector('#settingsGrid .setting.changed'), 'settings still marked as changed after reset');
 
+        // A debug layer is computed on demand and drawn behind the notes.
+        const layerSelect = doc.getElementById('layerSelect');
+        layerSelect.value = 'salience';
+        layerSelect.dispatchEvent(new Event('change'));
+        await waitFor(() => timeline.layer?.kind === 'salience', 10000, 'salience layer');
+        assert(!doc.getElementById('layerHint').hidden, 'layer hint hidden');
+        assert(!doc.getElementById('layerFloor').disabled, 'contrast disabled');
+        layerSelect.value = '';
+        layerSelect.dispatchEvent(new Event('change'));
+        assertEqual(timeline.layer, null, 'layer after None:');
+
         doc.getElementById('playButton').click();
         await waitFor(() => doc.getElementById('playButton').textContent.includes('Pause'), 3000, 'playing');
         await new Promise((r) => setTimeout(r, 300));
