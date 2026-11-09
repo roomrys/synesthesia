@@ -62,8 +62,10 @@
             <canvas id="timeline"></canvas>
             <div class="row transport">
                 <button id="playButton" disabled title="Space">▶ Play</button>
-                <button id="playCropButton" disabled>Play crop</button>
                 <span class="time" id="timeDisplay">0:00.0</span>
+                <label class="check" title="L"><input type="checkbox" id="loopToggle"> Loop crop</label>
+                <label title="- and =">Speed <input type="range" id="speed" min="0.25" max="1.5" step="0.05" value="1">
+                    <output id="speedDisplay" class="time">100%</output></label>
                 <label>Song <input type="range" id="songVolume" min="0" max="1" step="0.01" value="0.8"></label>
                 <label>Notes <input type="range" id="notesVolume" min="0" max="1" step="0.01" value="0.8"></label>
                 <label class="check"><input type="checkbox" id="followPlayhead" checked> Follow</label>
@@ -72,14 +74,15 @@
                 <span>Time <span class="time" id="cropDisplay">–</span></span>
                 <button id="cropStartButton" disabled title="[">Start here</button>
                 <button id="cropEndButton" disabled title="]">End here</button>
-                <button id="cropResetButton" disabled>Reset</button>
+                <button id="cropResetButton" disabled title="The whole clip">Reset</button>
                 <span class="divider"></span>
                 <span>Notes <span class="time" id="pitchDisplay">–</span></span>
                 <button id="pitchFitButton" disabled>Fit to notes</button>
             </div>
             <p class="hint">Scroll to zoom, drag to pan, click to jump. Drag the yellow handles to crop: the vertical
                 ones set the time, the horizontal ones set the lowest and highest notes kept. Press
-                <kbd>[</kbd> and <kbd>]</kbd> to set the time crop at the playhead. <kbd>Space</kbd> plays and pauses.</p>
+                <kbd>[</kbd> and <kbd>]</kbd> to set the time crop at the playhead. <kbd>Space</kbd> plays and pauses,
+                <kbd>L</kbd> toggles looping, <kbd>-</kbd> and <kbd>=</kbd> change speed (pitch stays the same).</p>
         </section>
 
         <section class="panel" id="savePanel">

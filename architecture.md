@@ -36,8 +36,9 @@ Both are static pages with no build step, hosted on GitHub Pages.
    else in the codebase knows the library exists.
 5. **A pure core.** Data types, extractors, DSP, music helpers and codecs don't
    touch the DOM, so they can be tested in Node.
-6. **One clock.** The song and the playback of detected notes are scheduled on
-   the same `AudioContext`, so they stay in sync.
+6. **Notes follow the song's clock.** Detected notes are scheduled a little
+   ahead against the song's own playback position, scaled by the playback
+   speed, so they stay in sync when slowed down, looped or seeked.
 
 ---
 
@@ -52,12 +53,12 @@ Both are static pages with no build step, hosted on GitHub Pages.
 └──────────────┘                     filter       pitchTrack}                      or download)
                          │                           │
                          ▼                           ▼
-              ┌──────────── Player (one AudioContext) ─────────────┐
-              │  song:  AudioBufferSourceNode ─┐                   │
-              │                                ├─► mix ─► speakers │
-              │  notes: Voice (synth) ─────────┘                   │
-              └───────────────────────┬────────────────────────────┘
-                                      │ currentTime
+              ┌──────────────── Player (one AudioContext) ──────────────┐
+              │  song:  <audio> (in-memory WAV, preservesPitch) ─┐      │
+              │                                                  ├─► mix│
+              │  notes: Voice (synth), scheduled from song time ─┘      │
+              └───────────────────────┬─────────────────────────────────┘
+                                      │ song time (loop, speed)
                                       ▼
           Timeline: waveform · piano roll · pitch track · crop handles · playhead
 ```
@@ -67,6 +68,10 @@ Both are static pages with no build step, hosted on GitHub Pages.
    the result and applies the note range filter.
 3. The **Player** plays the song and a synth **Voice** playing the detected
    notes together, so you can hear where the transcription is right or wrong.
+   It can **loop** the time crop and change **speed** (25–150%) without changing
+   pitch. For that, the song plays through an `<audio>` element fed from a WAV
+   blob built in memory from the clip, using the browser's pitch-preserving
+   playback. The blob is released when the clip is cleared or replaced.
 4. The **Timeline** draws the waveform, the notes (in the fretboard's note
    colours) and the playhead. It has two crops: vertical handles set the
    **time** range, and horizontal handles set the **pitch** range (lowest and
@@ -348,7 +353,7 @@ js/
     music.js               MIDI ↔ name, note colours           (pure)
     noteset.js             sort, range filter, crop            (pure)
     analysis.js            debug export of per-frame numbers   (pure)
-    player.js              song + voice playback on one clock
+    player.js              song + voice playback, loop, speed
     timeline.js            canvas: waveform, piano roll, crop, playhead
     capture-worklet.js     AudioWorklet for live sources
     sources/               live.js (shared), tab.js, file.js

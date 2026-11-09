@@ -12,6 +12,7 @@ const MAX_LISTEN_SECONDS = 20 * 60;
 const DETECT_RANGE = { min: 33, max: 100 };   // A1..E7: detection always covers this
 const EMPTY_VIEW = { min: 40, max: 88 };      // E2..E6: rows shown before any notes
 const VIEW_PADDING = 3;                       // semitones shown around the detected notes
+const SPEED = { min: 0.25, max: 1.5 };
 
 const $ = (id) => document.getElementById(id);
 const el = {
@@ -23,7 +24,8 @@ const el = {
     extractorHint: $('extractorHint'), notesStatus: $('notesStatus'), analysisButton: $('analysisButton'),
     settingsPanel: $('settingsPanel'), settingsGrid: $('settingsGrid'), autoRerun: $('autoRerun'),
     resetSettingsButton: $('resetSettingsButton'),
-    timeline: $('timeline'), playButton: $('playButton'), playCropButton: $('playCropButton'),
+    timeline: $('timeline'), playButton: $('playButton'), loopToggle: $('loopToggle'),
+    speed: $('speed'), speedDisplay: $('speedDisplay'),
     timeDisplay: $('timeDisplay'), songVolume: $('songVolume'), notesVolume: $('notesVolume'),
     followPlayhead: $('followPlayhead'), cropDisplay: $('cropDisplay'), cropStartButton: $('cropStartButton'),
     cropEndButton: $('cropEndButton'), cropResetButton: $('cropResetButton'),
@@ -136,7 +138,7 @@ function refresh() {
     el.cancelButton.hidden = !extracting;
     el.progress.hidden = !extracting;
 
-    for (const b of [el.playButton, el.playCropButton, el.cropStartButton, el.cropEndButton, el.cropResetButton]) {
+    for (const b of [el.playButton, el.cropStartButton, el.cropEndButton, el.cropResetButton]) {
         b.disabled = !hasTimeline || listening;
     }
     el.playButton.textContent = player?.playing ? '❚❚ Pause' : '▶ Play';
@@ -157,6 +159,7 @@ function refresh() {
 function setCrop(start, end, { fromTimeline = false } = {}) {
     state.crop = { start: Math.max(0, start), end: Math.min(duration(), end) };
     if (!fromTimeline) timeline.setCrop(state.crop.start, state.crop.end);
+    if (player?.loop) updateLoop();
     refresh();
 }
 
@@ -416,20 +419,38 @@ function showNotes(noteSet, pitchCrop = null) {
 
 // ----- playback -----
 
-function togglePlay() {
-    if (!duration()) return;
-    if (player.playing) player.pause();
-    else player.play(player.position >= player.length - 0.05 ? 0 : player.position);
+function startPlayback(from) {
+    player.play(from).catch((err) => setStatus(el.notesStatus, `Playback failed: ${err.message}`, 'error'));
     timeline.follow = el.followPlayhead.checked;
     animate();
     refresh();
 }
 
-function playCrop() {
-    player.play(state.crop.start, state.crop.end);
-    timeline.follow = el.followPlayhead.checked;
-    animate();
-    refresh();
+function togglePlay() {
+    if (!duration()) return;
+    if (player.playing) {
+        player.pause();
+        refresh();
+        return;
+    }
+    let from = player.position;
+    if (el.loopToggle.checked) {
+        if (from < state.crop.start || from >= state.crop.end - 0.05) from = state.crop.start;
+    } else if (from >= player.length - 0.05) {
+        from = 0;
+    }
+    startPlayback(from);
+}
+
+/** Keep the player's loop in step with the checkbox and the time crop. */
+function updateLoop() {
+    player.setLoop(el.loopToggle.checked ? { start: state.crop.start, end: state.crop.end } : null);
+}
+
+function setSpeed(rate) {
+    player.setRate(rate);
+    el.speed.value = rate;
+    el.speedDisplay.textContent = `${Math.round(rate * 100)}%`;
 }
 
 function animate() {
@@ -537,6 +558,12 @@ function onKey(e) {
         setCrop(Math.min(player.currentTime, state.crop.end - 0.1), state.crop.end);
     } else if (e.key === ']') {
         setCrop(state.crop.start, Math.max(player.currentTime, state.crop.start + 0.1));
+    } else if (e.key === 'l') {
+        el.loopToggle.checked = !el.loopToggle.checked;
+        updateLoop();
+    } else if (e.key === '-' || e.key === '=') {
+        const step = e.key === '-' ? -0.05 : 0.05;
+        setSpeed(Math.round(Math.min(SPEED.max, Math.max(SPEED.min, player.rate + step)) * 100) / 100);
     }
 }
 
@@ -574,7 +601,8 @@ async function main() {
     el.resetSettingsButton.addEventListener('click', resetSettings);
     el.pitchFitButton.addEventListener('click', fitPitchCrop);
     el.playButton.addEventListener('click', togglePlay);
-    el.playCropButton.addEventListener('click', playCrop);
+    el.loopToggle.addEventListener('change', updateLoop);
+    el.speed.addEventListener('input', () => setSpeed(Number(el.speed.value)));
     el.songVolume.addEventListener('input', () => player.setSongVolume(Number(el.songVolume.value)));
     el.notesVolume.addEventListener('input', () => player.setNotesVolume(Number(el.notesVolume.value)));
     el.followPlayhead.addEventListener('change', () => { timeline.follow = el.followPlayhead.checked && player.playing; });

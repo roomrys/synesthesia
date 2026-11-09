@@ -16,7 +16,7 @@ Press a note name on your keyboard to highlight every position of that note on t
 A new page (`extract.html`) that listens to audio, detects the notes, and saves the notes and their timings to a file on your computer. You can then load the file onto the fretboard.
 
 - Listen to audio playing in another browser tab (Chrome/Edge), or open an audio file (microphone coming soon)
-- Play the detected notes back over the audio to check them by ear
+- Play the detected notes back over the audio to check them by ear, looped and slowed down if you like (pitch stays the same)
 - Crop to the part you want, in time and in pitch
 - Save the notes as a `.synesthesia` file (readable JSON) in a folder you choose
 
