@@ -126,6 +126,9 @@ test('page: opening an audio file finds notes and enables playback and saving', 
         pointer('pointermove', timeline.timeToX(0.1), row(62));
         pointer('pointermove', timeline.timeToX(0.2), row(62));
         pointer('pointerup', timeline.timeToX(0.2), row(62));
+        // Hovering empty space previews where a note and its overtones would go.
+        pointer('pointermove', timeline.timeToX(1.0), row(50));
+        assertEqual(timeline.hover?.midi, 50, 'hover preview row:');
         const notes = () => state.noteSet.notes;
         assertEqual(notes().length, 4, 'notes after drawing:');
         assertEqual(notes()[0].midi, 62, 'drawn pitch:');

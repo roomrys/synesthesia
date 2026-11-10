@@ -47,6 +47,15 @@ export function hzToMidi(hz) {
     return 69 + 12 * Math.log2(hz / 440);
 }
 
+/**
+ * How far above a note its overtones sound, in semitones (not rounded):
+ * harmonic 2 is +12, 3 is +19.02, 4 is +24, 5 is +27.86, 6 is +31.02, 7 is +33.69, 8 is +36.
+ * Returns [{ harmonic, semitones }] for harmonics 2..count.
+ */
+export function overtones(count = 8) {
+    return Array.from({ length: count - 1 }, (_, i) => ({ harmonic: i + 2, semitones: 12 * Math.log2(i + 2) }));
+}
+
 export function noteColor(midi) {
     return PITCH_CLASS_COLORS[pitchClass(midi)];
 }

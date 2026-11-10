@@ -11,7 +11,7 @@
 // resize it. The timeline changes the note objects in place and reports
 // through onEditStart (before the first change, for undo) and onEdit (after).
 
-import { midiToName, noteColor, pitchClass } from './music.js';
+import { midiToName, noteColor, overtones, pitchClass } from './music.js';
 
 const GUTTER = 44;
 const OVERVIEW_H = 34;
@@ -23,6 +23,8 @@ const MIN_SPAN = 0.5;
 const SHARPS = new Set([1, 3, 6, 8, 10]);
 const EDGE_HIT = 5;          // pixels at each end of a note that resize it
 const MIN_NOTE = 0.03;       // shortest note you can draw, in seconds
+const OVERTONES = overtones(8);
+const HOVER_HALF_WIDTH = 28; // pixels each side of the cursor for the hover preview
 
 const COLORS = {
     background: '#0d0d12',
@@ -82,6 +84,7 @@ export class Timeline {
         this.onAudition = onAudition;     // (midi) to preview a pitch while editing
         this.editing = false;
         this.selected = null;             // the selected note while editing
+        this.hover = null;                // { midi, x } where a note would be drawn, while editing
         this.pitchCrop = { min: 40, max: 88 };   // kept notes, inclusive MIDI
         this.clip = null;
         this.duration = 0;
@@ -102,6 +105,7 @@ export class Timeline {
         canvas.addEventListener('pointerdown', (e) => this.pointerDown(e));
         canvas.addEventListener('pointermove', (e) => this.pointerMove(e));
         canvas.addEventListener('pointerup', (e) => this.pointerUp(e));
+        canvas.addEventListener('pointerleave', () => this.setHover(null));
         canvas.addEventListener('wheel', (e) => this.wheel(e), { passive: false });
         this.resize();
     }
@@ -134,12 +138,21 @@ export class Timeline {
 
     setEditing(on) {
         this.editing = on;
-        if (!on) this.selected = null;
+        if (!on) {
+            this.selected = null;
+            this.hover = null;
+        }
         this.draw();
     }
 
     select(note) {
         this.selected = note;
+        this.draw();
+    }
+
+    setHover(hover) {
+        if (hover?.midi === this.hover?.midi && hover?.x === this.hover?.x) return;
+        this.hover = hover;
         this.draw();
     }
 
@@ -431,11 +444,45 @@ export class Timeline {
             }
         }
         const sel = this.selected;
+        if (sel) this.renderOvertones(sel.midi, this.timeToX(sel.start), this.timeToX(sel.start + sel.duration), 1);
+        if (this.hover && !this.drag) {
+            const { midi, x } = this.hover;
+            ctx.globalAlpha = 0.5;
+            ctx.strokeStyle = noteColor(midi);
+            ctx.strokeRect(x - HOVER_HALF_WIDTH + 0.5, this.midiToY(midi) + 0.5, HOVER_HALF_WIDTH * 2 - 1, rowH - 1);
+            ctx.globalAlpha = 1;
+            this.renderOvertones(midi, x - HOVER_HALF_WIDTH, x + HOVER_HALF_WIDTH, 0.6);
+        }
         if (sel) {
             const x = this.timeToX(sel.start);
             ctx.strokeStyle = COLORS.selected;
             ctx.lineWidth = 2;
             ctx.strokeRect(x - 1, this.midiToY(sel.midi), Math.max(2, this.timeToX(sel.start + sel.duration) - x) + 2, rowH);
+        }
+        ctx.restore();
+    }
+
+    /**
+     * Where a note's overtones sound, from x1 to x2: dashed boxes in the note's colour,
+     * fading with each harmonic, at their exact (not rounded) pitch, labelled ×2, ×3…
+     */
+    renderOvertones(midi, x1, x2, strength) {
+        const { ctx } = this;
+        const rowH = this.rowHeight;
+        const w = Math.max(2, x2 - x1);
+        ctx.save();
+        ctx.strokeStyle = ctx.fillStyle = noteColor(midi);
+        ctx.lineWidth = 1.25;
+        ctx.setLineDash([4, 3]);
+        ctx.font = '9px system-ui, sans-serif';
+        ctx.textAlign = 'right';
+        for (const { harmonic, semitones } of OVERTONES) {
+            const pitch = midi + semitones;
+            if (pitch > this.maxMidi + 0.5) break;
+            const y = this.midiToY(pitch);
+            ctx.globalAlpha = strength * (0.75 - 0.07 * (harmonic - 2));
+            ctx.strokeRect(x1 + 0.5, y + 0.5, w - 1, Math.max(1, rowH - 1));
+            if (rowH >= 8) ctx.fillText(`×${harmonic}`, x1 - 3, y + rowH / 2 + 3);
         }
         ctx.restore();
     }
@@ -657,10 +704,12 @@ export class Timeline {
             const hit = this.editing && this.duration ? this.noteAt(x, y) : null;
             if (hit) {
                 this.canvas.style.cursor = hit.part === 'move' ? 'move' : 'ew-resize';
+                this.setHover(null);
                 return;
             }
             const handle = this.duration ? this.hitHandle(x, y) : null;
             const inRoll = y >= this.rollTop && x >= GUTTER;
+            this.setHover(this.editing && inRoll && !handle ? { midi: this.rowAt(y), x } : null);
             this.canvas.style.cursor = handle ? (handle.startsWith('pitch') ? 'ns-resize' : 'ew-resize')
                 : this.editing && inRoll ? 'crosshair' : 'default';
             return;

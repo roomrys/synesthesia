@@ -108,7 +108,10 @@ layer. There are two layers:
 **Edit notes** turns the piano roll into a note editor, to try where notes
 really belong: drag on empty space to add a note, drag a note to move it (its
 pitch plays as it changes rows), drag its ends to resize, and press Delete to
-remove the selected note. Undo and redo keep up to 200 steps. The timeline
+remove the selected note. Undo and redo keep up to 200 steps. The selected
+note, and a preview under the cursor, show where harmonics 2–8 sound (dashed,
+fading, at their exact pitch from `overtones()` in `music.js`), so a note's whole
+stack can be lined up with the spectrogram. The timeline
 changes note objects in place and calls `onEditStart` (main.js copies the notes
 for undo) and `onEdit` (main.js re-sorts, keeps the edited note inside the pitch
 crop, and updates playback). Edited notes are saved like detected ones. Finding

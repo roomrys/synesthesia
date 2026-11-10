@@ -1,5 +1,12 @@
 import { test, assertEqual, assertClose } from './runner.js';
-import { midiToName, nameToMidi, midiToHz, hzToMidi, noteColor } from '../js/extract/music.js';
+import { midiToName, nameToMidi, midiToHz, hzToMidi, noteColor, overtones } from '../js/extract/music.js';
+
+test('music: overtones sit at the octave, octave + fifth, two octaves…', () => {
+    const o = overtones(8);
+    assertEqual(o.map((x) => x.harmonic).join(','), '2,3,4,5,6,7,8');
+    assertEqual(o.map((x) => Math.round(x.semitones)).join(','), '12,19,24,28,31,34,36');
+    assertClose(o[5].semitones, 33.69, 0.01, 'harmonic 7 is flat of a semitone row:');
+});
 
 test('music: midi <-> name', () => {
     assertEqual(midiToName(69), 'A4');
