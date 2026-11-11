@@ -27,6 +27,16 @@ for (const id of Object.keys(registry.codec)) {
         });
         assertEqual(meta.title, 'test song');
         assertClose(meta.duration, 2, 0.001);
+        const withSong = codec.encode(noteSet, {
+            title: 't', duration: 2, song: { title: 'Their Song', artist: 'Some Band' },
+            source: { type: 'file', label: 'band - song.mp3', start: 12.3456, length: 200 },
+            extra: { tuning: 'Drop D', capo: '2' },
+        });
+        const extra = codec.decode(await withSong.arrayBuffer()).meta;
+        assertEqual(extra.song.artist, 'Some Band', 'artist:');
+        assertEqual(extra.source.label, 'band - song.mp3', 'source label:');
+        assertClose(extra.source.start, 12.346, 0.0005, 'source start:');
+        assertEqual(JSON.stringify(extra.extra), '{"tuning":"Drop D","capo":"2"}', 'extra details:');
     });
 
     test(`codec ${id}: rejects files that aren't note files`, async () => {

@@ -20,6 +20,17 @@ function encodeNote(n) {
     return out;
 }
 
+/** Keep only string-able name/value pairs from a file's "extra" section. */
+function readExtra(extra) {
+    if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return {};
+    const out = {};
+    for (const [key, value] of Object.entries(extra)) {
+        if (value === null || typeof value === 'object') continue;
+        out[key] = String(value);
+    }
+    return out;
+}
+
 export default {
     id: 'json',
     name: 'Synesthesia notes (JSON)',
@@ -28,10 +39,12 @@ export default {
 
     /**
      * @param {import('../types.js').NoteSet} noteSet
-     * @param {{title: string, duration: number}} meta
+     * @param {{title: string, duration: number, song?: {title?: string, artist?: string},
+     *          source?: {type?: string, label?: string, start?: number, length?: number},
+     *          extra?: Object<string, string>}} meta
      * @returns {Blob}
      */
-    encode(noteSet, { title, duration }) {
+    encode(noteSet, { title, duration, song, source, extra }) {
         const header = {
             format: FORMAT,
             version: VERSION,
@@ -41,6 +54,15 @@ export default {
             range: noteSet.range,
             extractor: noteSet.extractor,
         };
+        // Optional song details, and where the notes sit in the audio they came from.
+        if (song && (song.title || song.artist)) header.song = { title: song.title ?? '', artist: song.artist ?? '' };
+        if (source) {
+            header.source = { type: source.type ?? '', label: source.label ?? '' };
+            if (source.start !== undefined) header.source.start = round(source.start, 3);
+            if (source.length !== undefined) header.source.length = round(source.length, 3);
+        }
+        // Free-form details: { name: value } strings, such as tuning or capo.
+        if (extra && Object.keys(extra).length) header.extra = { ...extra };
         // One note per line keeps files readable and diffable.
         const headerText = JSON.stringify(header, null, 2).slice(0, -2);
         const notesText = noteSet.notes.map((n) => '    ' + JSON.stringify(encodeNote(n))).join(',\n');
@@ -76,7 +98,11 @@ export default {
                 range: data.range ?? { minMidi: 0, maxMidi: 127 },
                 extractor: data.extractor ?? { id: 'unknown', options: {} },
             },
-            meta: { title: data.title ?? '', duration: data.duration ?? 0, createdAt: data.createdAt },
+            meta: {
+                title: data.title ?? '', duration: data.duration ?? 0, createdAt: data.createdAt,
+                song: data.song ?? null, source: data.source ?? null,
+                extra: readExtra(data.extra),
+            },
         };
     },
 };
