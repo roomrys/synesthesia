@@ -27,14 +27,14 @@ A new page (`extract.html`) that listens to audio, detects the notes, and saves 
 Audio is only held in memory while you use the page. It is never saved or uploaded; only the detected notes are saved.
 
 ## Roadmap
-- [ ] Note extractor: listen to a browser tab, detect notes, play them back, crop, save
+- [x] Note extractor: listen to a browser tab or open a file, draw or detect notes, play them back, crop, save
 - [x] Note range filter: drag to keep only the notes you want
-- [ ] More audio sources (microphone, audio file) and pitch detectors
-- [ ] Load note files onto the fretboard and replay them in time
-- [ ] MIDI file support
-- [ ] Separate notes by instrument or part
+- [ ] Tabs view: choose a string and fret for every note, and see and change them (note files and MIDI files)
+- [ ] Open strings, and an exact pitch for every position on the fretboard
+- [ ] Play a note file on the fretboard, with upcoming notes shown ahead of time
+- [ ] Better note detection for chords and full mixes, microphone input, MIDI files
 
-See [architecture.md](architecture.md) for how it all fits together.
+See [architecture.md](architecture.md) for how it all fits together, and the READMEs in [js/extract](js/extract/README.md), [js/fretboard](js/fretboard/README.md) and [js/tabs](js/tabs/README.md) for each part.
 
 ## Tests
 ```sh
