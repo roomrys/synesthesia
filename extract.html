@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Synesthesia · Note extractor</title>
+    <link rel="stylesheet" href="css/extract.css">
+    <link rel="icon" type="image/png" href="images/favicon.png">
+
+    <script defer src="https://cloud.umami.is/script.js"
+        data-website-id="bfe63826-fbe6-4559-9060-8c4404b1e44d"></script>
+</head>
+
+<body>
+    <header>
+        <a href="index.html" class="back">← Fretboard</a>
+        <h1>Note extractor</h1>
+        <span class="tag">experimental</span>
+    </header>
+
+    <main>
+        <section class="panel" id="audioPanel">
+            <h2><span class="step">1</span> Audio</h2>
+            <div class="row" id="sourceButtons"></div>
+            <div class="row" id="liveControls" hidden>
+                <button id="stopButton" class="primary">Stop</button>
+                <span class="listening"><span class="dot"></span> Listening <span id="elapsed">0:00</span></span>
+                <meter id="level" min="0" max="1" low="0.6" high="0.9" optimum="0.3" value="0"></meter>
+            </div>
+            <p class="hint" id="sourceHint"></p>
+            <div class="row" id="clipRow" hidden>
+                <span id="clipInfo"></span>
+                <button id="clearButton">Clear audio</button>
+            </div>
+            <label class="check" id="keepNotesRow" hidden
+                title="Use the notes you have with the next audio, instead of finding notes again"><input
+                    type="checkbox" id="keepNotes"> Keep my notes for the next audio (then line them up by
+                hand)</label>
+            <p class="status" id="audioStatus" role="status"></p>
+        </section>
+
+        <section class="panel" id="notesPanel">
+            <h2><span class="step">2</span> Notes</h2>
+            <div class="row">
+                <label>Detector <select id="extractorSelect"></select></label>
+                <button id="extractButton" class="primary" disabled>Find notes</button>
+                <button id="cancelButton" hidden>Cancel</button>
+                <progress id="progress" max="1" value="0" hidden></progress>
+                <button id="analysisButton" hidden title="Per-frame detector numbers for debugging. Contains no audio.">Export analysis</button>
+            </div>
+            <p class="hint" id="extractorHint"></p>
+            <p class="status" id="notesStatus" role="status"></p>
+            <details id="settingsPanel" hidden>
+                <summary>Tune the detector</summary>
+                <div class="settings" id="settingsGrid"></div>
+                <div class="row">
+                    <label class="check"><input type="checkbox" id="autoRerun" checked> Re-run when a setting changes</label>
+                    <button id="resetSettingsButton">Reset to defaults</button>
+                </div>
+            </details>
+        </section>
+
+        <section class="panel" id="timelinePanel">
+            <h2><span class="step">3</span> Check and crop</h2>
+            <canvas id="timeline"></canvas>
+            <div class="row transport">
+                <button id="playButton" disabled title="Space">▶ Play</button>
+                <span class="time" id="timeDisplay">0:00.0</span>
+                <label class="check" title="L"><input type="checkbox" id="loopToggle"> Loop crop</label>
+                <label title="- and =">Speed <input type="range" id="speed" min="0.25" max="1.5" step="0.05" value="1">
+                    <output id="speedDisplay" class="time">100%</output></label>
+                <label>Song <input type="range" id="songVolume" min="0" max="1" step="0.01" value="0.8"></label>
+                <label>Notes <input type="range" id="notesVolume" min="0" max="1" step="0.01" value="0.8"></label>
+                <label class="check"><input type="checkbox" id="followPlayhead" checked> Follow</label>
+            </div>
+            <div class="row">
+                <span>Time <span class="time" id="cropDisplay">–</span></span>
+                <button id="cropStartButton" disabled title="[">Start here</button>
+                <button id="cropEndButton" disabled title="]">End here</button>
+                <button id="cropFitButton" disabled title="Crop to where the audio starts and ends">Fit to audio</button>
+                <button id="cropResetButton" disabled title="The whole clip">Reset</button>
+                <span class="divider"></span>
+                <span>Notes <span class="time" id="pitchDisplay">–</span></span>
+                <button id="pitchFitButton" disabled>Fit to notes</button>
+            </div>
+            <div class="row">
+                <label>Debug layer <select id="layerSelect">
+                        <option value="">None</option>
+                        <option value="spectrogram">Spectrogram</option>
+                        <option value="salience">Harmonic sum</option>
+                    </select></label>
+                <label>Contrast <input type="range" id="layerFloor" min="0" max="0.9" step="0.01" value="0.4" disabled></label>
+                <span class="hint" id="layerStatus"></span>
+                <span class="divider"></span>
+                <label class="check" title="E"><input type="checkbox" id="editToggle" disabled> Edit notes</label>
+                <button id="undoButton" disabled title="Cmd/Ctrl+Z">Undo</button>
+                <button id="redoButton" disabled title="Shift+Cmd/Ctrl+Z">Redo</button>
+                <label class="check" title="Snap to note starts heard in the audio and to other notes. Hold Alt to place freely."><input
+                        type="checkbox" id="snapToggle" checked> Snap</label>
+            </div>
+            <p class="hint" id="layerHint" hidden></p>
+            <p class="hint" id="editHint" hidden>Editing: drag on empty space to add a note, drag a note to move it
+                (you'll hear its pitch), drag its ends to resize it. Dashed boxes show where the note's overtones
+                (×2, ×3…) sound, so you can line its whole stack up with the debug layer. <kbd>Shift</kbd>+drag
+                selects a group (<kbd>Shift</kbd>+click adds or removes one note, <kbd>Cmd/Ctrl+A</kbd> selects all),
+                and dragging any selected note moves them all. Times snap to the blue ticks (where notes seem to start)
+                and to other notes; hold <kbd>Alt</kbd> to place freely. <kbd>Delete</kbd> removes the selected notes,
+                <kbd>Esc</kbd> deselects, and <kbd>Cmd/Ctrl+Z</kbd> undoes. Scroll or use the top strip to move
+                around. Finding notes again replaces your edits.</p>
+            <p class="hint">Scroll to zoom, drag to pan, click to jump. Drag the yellow handles to crop: the vertical
+                ones set the time, the horizontal ones set the lowest and highest notes kept. Dragging past
+                the left or right edge scrolls. Press
+                <kbd>[</kbd> and <kbd>]</kbd> to set the time crop at the playhead. <kbd>Space</kbd> plays and pauses,
+                <kbd>L</kbd> toggles looping, <kbd>-</kbd> and <kbd>=</kbd> change speed (pitch stays the same).</p>
+        </section>
+
+        <section class="panel" id="savePanel">
+            <h2><span class="step">4</span> Save</h2>
+            <div class="row">
+                <label>Name <input type="text" id="titleInput" placeholder="my-song" spellcheck="false"></label>
+                <button id="saveButton" class="primary" disabled>Save notes</button>
+                <button id="loadButton">Open notes file…</button>
+            </div>
+            <div class="row">
+                <label>Song <input type="text" id="songInput" placeholder="Song title" spellcheck="false"></label>
+                <label>Artist <input type="text" id="artistInput" placeholder="Artist" spellcheck="false"></label>
+                <span class="hint" id="sourceInfo"></span>
+            </div>
+            <div class="extra" id="extraFields"></div>
+            <div class="row">
+                <button id="addExtraButton" title="Anything else worth keeping with the notes">+ Add detail</button>
+                <span class="hint">For example tuning, capo, tempo, key or which part this is.</span>
+            </div>
+            <div class="row" id="folderRow" hidden>
+                <span>Saving to <strong id="folderName">a folder you choose</strong></span>
+                <button id="folderButton">Choose folder…</button>
+            </div>
+            <p class="status" id="saveStatus" role="status"></p>
+        </section>
+
+        <p class="privacy">Audio stays in this page's memory and is never saved or uploaded. Only the notes are saved.</p>
+    </main>
+
+    <script type="module" src="js/extract/main.js"></script>
+</body>
+
+</html>

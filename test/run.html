@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Synesthesia tests</title>
+    <style>
+        body { font: 14px/1.4 ui-monospace, Menlo, monospace; margin: 16px; }
+        pre { white-space: pre-wrap; }
+    </style>
+</head>
+
+<body>
+    <pre id="results">Running…</pre>
+    <script type="module">
+        import { run } from './runner.js';
+        const output = document.getElementById('results');
+        window.addEventListener('error', (e) => { output.textContent = `Error: ${e.message}`; document.title = 'FAIL (error)'; });
+        try {
+            await import('./music.test.js');
+            await import('./noteset.test.js');
+            await import('./dsp.test.js');
+            await import('./registry.test.js');
+            await import('./extractors.test.js');
+            await import('./codecs.test.js');
+            await import('./sources.test.js');
+            await import('./voices.test.js');
+            await import('./player.test.js');
+            await import('./spectrum.test.js');
+            await import('./metadata.test.js');
+            await import('./page.test.js');
+            await run(output);
+        } catch (err) {
+            output.textContent = `Error loading tests: ${err?.stack ?? err}`;
+            document.title = 'FAIL (error)';
+        }
+    </script>
+</body>
+
+</html>
