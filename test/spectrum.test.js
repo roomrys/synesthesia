@@ -61,3 +61,12 @@ test('spectrum: long clips use a coarser hop', async () => {
     assert(layers.frames <= 101, `frames ${layers.frames}`);
     assert(layers.hopSeconds >= 0.1 - 1e-9, `hop ${layers.hopSeconds}`);
 });
+
+test('spectrum: onsets find note starts (including a repeated note) but not note ends', async () => {
+    const segments = [{ seconds: 0.5 }, { midi: 64, seconds: 0.4 }, { midi: 67, seconds: 0.3 }, { midi: 67, seconds: 0.3 },
+        { seconds: 0.2 }, { midi: 52, seconds: 0.5 }, { midi: 71, seconds: 0.25 }, { seconds: 0.5 }];
+    const layers = await computeLayers(sequence(segments, 44100, { harmonics: [1, 0.6, 0.4, 0.3] }), 44100);
+    const starts = [0.5, 0.9, 1.2, 1.7, 2.2];
+    assertEqual(layers.onsets.length, starts.length, `onsets ${JSON.stringify(layers.onsets)}:`);
+    layers.onsets.forEach((t, i) => assert(Math.abs(t - starts[i]) <= 0.03, `onset ${i}: ${t} vs ${starts[i]}`));
+});

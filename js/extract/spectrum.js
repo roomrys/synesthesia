@@ -7,6 +7,9 @@
 //   of classical polyphonic pitch detection.
 //
 // Both are stored as bytes (0–255), frame by frame, lowest pitch first.
+//
+// Onsets (where notes seem to start) come from spectral flux: how much the
+// short-window (64 ms) log spectrum grows from one frame to the next.
 
 import { resampleFast } from './dsp.js';
 import { midiToHz } from './music.js';
@@ -45,6 +48,37 @@ export function fft(re, im) {
     }
 }
 
+/**
+ * Pick onset times from a spectral-flux curve: local peaks that stand out from
+ * their surroundings, at least `minGap` seconds apart.
+ */
+export function pickOnsets(flux, hopSeconds, { level = null, offset = 0, floor = 0.08, lift = 0.05, minGap = 0.05 } = {}) {
+    let max = 0;
+    for (const v of flux) if (v > max) max = v;
+    if (max <= 0) return [];
+    const near = Math.max(1, Math.round(0.03 / hopSeconds));
+    const wide = Math.max(near + 1, Math.round(0.1 / hopSeconds));
+    const onsets = [];
+    for (let f = 0; f < flux.length; f++) {
+        const v = flux[f] / max;
+        if (v < floor) continue;
+        let peak = true;
+        for (let g = Math.max(0, f - near); g <= Math.min(flux.length - 1, f + near) && peak; g++) {
+            if (flux[g] > flux[f] || (flux[g] === flux[f] && g < f)) peak = false;
+        }
+        if (!peak) continue;
+        let sum = 0, count = 0;
+        for (let g = Math.max(0, f - wide); g <= Math.min(flux.length - 1, f + wide); g++) { sum += flux[g]; count++; }
+        if (v < sum / count / max + lift) continue;
+        // A note ending in silence can click; only keep peaks where the sound gets louder.
+        if (level && (level[Math.min(flux.length - 1, f + near)] <= level[Math.max(0, f - near)])) continue;
+        const t = Math.max(0, f * hopSeconds + offset);
+        if (onsets.length && t - onsets[onsets.length - 1] < minGap) continue;
+        onsets.push(t);
+    }
+    return onsets;
+}
+
 /** Where each pitch bin reads from the FFT: interpolate (low notes) or take the max (high notes). */
 function pitchBinMap(minMidi, count, binsPerSemitone, binHz, nyquist) {
     const map = [];
@@ -73,6 +107,8 @@ export async function computeLayers(samples, sampleRate, {
     binsPerSemitone = 3,
     harmonics = 10,
     rangeDb = 80,            // the quietest level shown, below the clip's peak
+    onsetSize = 1024,        // short window for onsets: 64 ms at 16 kHz
+    onsetMaxHz = 5000,
     onProgress,
     signal,
 } = {}) {
@@ -106,6 +142,18 @@ export async function computeLayers(samples, sampleRate, {
     const mag = new Float32Array(fftSize / 2 + 1);
     const level = new Float32Array(allBins);
 
+    // Onset analysis: a short window that ends at the frame time, so new energy shows up promptly.
+    const onsetWindow = new Float32Array(onsetSize);
+    for (let i = 0; i < onsetSize; i++) onsetWindow[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / onsetSize);
+    const onsetBins = Math.min(onsetSize / 2, Math.floor(onsetMaxHz / (LAYER_RATE / onsetSize)));
+    const ore = new Float32Array(onsetSize);
+    const oim = new Float32Array(onsetSize);
+    let prevLog = new Float32Array(onsetBins);
+    let nextLog = new Float32Array(onsetBins);
+    const flux = new Float32Array(frames);
+    const loudness = new Float32Array(frames);   // total log level per frame, for telling starts from ends
+    const onsetScale = (2 * gain) / (onsetSize / 2);
+
     const spectrogram = new Uint8Array(frames * bins);
     const salienceRaw = new Float32Array(frames * bins);
     let salienceMax = 0;
@@ -125,6 +173,24 @@ export async function computeLayers(samples, sampleRate, {
         }
         fft(re, im);
         for (let i = 0; i < mag.length; i++) mag[i] = Math.hypot(re[i], im[i]) * scale;
+
+        const end = Math.round(f * hopSamples);
+        for (let i = 0; i < onsetSize; i++) {
+            const j = end - onsetSize + i;
+            ore[i] = j >= 0 && j < x.length ? x[j] * onsetWindow[i] : 0;
+            oim[i] = 0;
+        }
+        fft(ore, oim);
+        let rise = 0;
+        let total = 0;
+        for (let i = 1; i < onsetBins; i++) {
+            nextLog[i] = Math.log1p(100 * Math.hypot(ore[i], oim[i]) * onsetScale);
+            total += nextLog[i];
+            if (f > 0 && nextLog[i] > prevLog[i]) rise += nextLog[i] - prevLog[i];
+        }
+        flux[f] = rise;
+        loudness[f] = total;
+        [prevLog, nextLog] = [nextLog, prevLog];
 
         // Level per pitch bin, 0 (rangeDb below peak) to 1 (peak).
         for (let k = 0; k < allBins; k++) {
@@ -155,8 +221,11 @@ export async function computeLayers(samples, sampleRate, {
     const salience = new Uint8Array(frames * bins);
     if (salienceMax > 0) for (let i = 0; i < salience.length; i++) salience[i] = Math.round((salienceRaw[i] / salienceMax) * 255);
     onProgress?.(1);
+    // The flux peaks about 20 ms after a note starts (measured on synthetic notes).
+    const onsets = pickOnsets(flux, hop, { level: loudness, offset: -0.02 });
 
     return {
+        onsets, flux,
         startSeconds: -hop / 2, hopSeconds: hop, frames,
         minMidi, maxMidi, binsPerSemitone, bins,
         spectrogram, salience,
