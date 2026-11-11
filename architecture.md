@@ -108,14 +108,50 @@ layer. There are two layers:
 **Edit notes** turns the piano roll into a note editor, to try where notes
 really belong: drag on empty space to add a note, drag a note to move it (its
 pitch plays as it changes rows), drag its ends to resize, and press Delete to
-remove the selected note. Undo and redo keep up to 200 steps. The selected
-note, and a preview under the cursor, show where harmonics 2–8 sound (dashed,
-fading, at their exact pitch from `overtones()` in `music.js`), so a note's whole
-stack can be lined up with the spectrogram. The timeline
-changes note objects in place and calls `onEditStart` (main.js copies the notes
-for undo) and `onEdit` (main.js re-sorts, keeps the edited note inside the pitch
-crop, and updates playback). Edited notes are saved like detected ones. Finding
+remove the selected notes. Shift+drag box-selects, Shift+click adds or removes
+one note, and Cmd/Ctrl+A selects all. Dragging any selected note moves the whole
+group. Undo and redo keep up to 200 steps. A single selected note, and a preview
+that starts at the cursor, show where harmonics 2–8 sound (dashed, fading, at
+their exact pitch from `overtones()` in `music.js`), so a note's whole stack can
+be lined up with the spectrogram. The timeline changes note objects in place and
+calls `onEditStart` (main.js copies the notes for undo) and `onEdit` (main.js
+re-sorts, keeps the edited notes inside the pitch crop, and updates playback).
+
+**Snapping:** while editing, note starts and ends snap (within 8 px) to
+**onsets** and to the starts and ends of other notes. Snapping can be turned off,
+and holding Alt places notes freely. Onsets are where notes seem to start, shown
+as blue ticks under the waveform. `spectrum.js` finds them with spectral flux: a
+64 ms window ending at each frame, the rise in log magnitude summed up to 5 kHz,
+and peaks that stand out from the surrounding 100 ms. Peaks where the overall
+level falls (a note ending in silence) are dropped, and the times are moved 20
+ms earlier (the measured delay). The analysis is computed when a layer is shown
+or editing starts. A tempo and beat grid could be added on top of the onsets
+later.
+
+**Dragging past the edge:** dragging a crop handle, a note, a new note or a
+selection box past the left or right edge of the timeline scrolls it, faster the
+further out the pointer is.
+
+**Keep my notes for the next audio:** when this is ticked, new audio (from a
+tab or a file) keeps the current notes instead of finding new ones, and turns
+on edit mode. You can then select everything and drag the notes into line with
+the new audio. This is useful when the same song is listened to again.
+
+**Song details:** the Save panel has Song and Artist fields, guessed from the
+file name or tab title by `guessSongInfo()` in `metadata.js`. It handles
+"Artist - Song", a trailing site name and bracketed extras such as "(Official
+Video)". Browsers sometimes label a shared tab with an internal id; then nothing
+is guessed. The file name defaults to "artist-song". **+ Add detail** adds free-form name and
+value rows (tuning, capo, tempo…), saved as `extra`. Edited notes are saved like detected ones. Finding
 notes again replaces them, after a confirmation.
+
+The detector list also has **None (draw notes by hand)**, and it is the
+default (`extractor: 'none'` in `config.js`), because YIN only finds one note at a
+time and misses most of a full mix. Use `?extractor=yin` to start with YIN. None
+isn't a registered extractor, because the contract tests require every extractor
+to find notes. It is the `NO_EXTRACTOR` value in `registry.js`, handled by the
+page: the timeline starts with no notes, the spectrogram is turned on if no
+layer is showing, and edit mode is on. Its button, **Clear notes**, starts over.
 
 The layers are computed when first shown and dropped with the clip. Below about
 C3, the 256 ms window can't fully separate neighbouring semitones, so low notes
@@ -322,7 +358,7 @@ export const registry = {
 ```js
 export const config = {
   sources: ['tab', 'file'],          // every supported one is offered on the page
-  extractor: 'yin',
+  extractor: 'none',                 // or 'yin'; 'none' = draw notes by hand
   voice: 'tone',
   codec: 'json',
   storage: ['folder', 'download'],   // fallback list: first one that isSupported()
@@ -358,6 +394,9 @@ dialog also accepts `.json`. Times are in seconds, relative to the crop start.
   "duration": 42.5,
   "range": { "minMidi": 40, "maxMidi": 88 },
   "extractor": { "id": "yin", "options": { "threshold": 0.15 } },
+  "song": { "title": "Their Song", "artist": "Some Band" },
+  "source": { "type": "tab", "label": "Some Band - Their Song", "start": 12.34, "length": 215.2 },
+  "extra": { "tuning": "Drop D", "capo": "2" },
   "notes": [
     { "midi": 64, "name": "E4", "start": 0.512, "duration": 0.25, "velocity": 0.8, "confidence": 0.93 }
   ]
@@ -365,6 +404,12 @@ dialog also accepts `.json`. Times are in seconds, relative to the crop start.
 ```
 
 - `name` is for readability only; `midi` is what counts.
+- `song` and `source` are optional. `source.type` is the source id (`tab` or
+  `file`), and `label` is the tab title or file name as captured. `start` is
+  where the saved region (time 0 of the notes) began in that audio, and `length`
+  is the length of that audio. Together they make it possible to line the notes
+  up with the same audio again later.
+- `extra` is optional: free-form details as `{ "name": "value" }` strings.
 - Readers must ignore unknown fields, so new fields (such as `part`) can be
   added without bumping `version`. Bump `version` only for breaking changes.
 
@@ -392,7 +437,8 @@ js/
     analysis.js            debug export of per-frame numbers   (pure)
     player.js              song + voice playback, loop, speed
     timeline.js            canvas: waveform, piano roll, crop, playhead, note editing
-    spectrum.js            FFT, spectrogram and harmonic-sum layers (pure)
+    spectrum.js            FFT, spectrogram, harmonic sum, onsets (pure)
+    metadata.js            song and artist guessed from a label (pure)
     capture-worklet.js     AudioWorklet for live sources
     sources/               live.js (shared), tab.js, file.js
     extractors/            index.js (runExtractor), yin.js     (pure)

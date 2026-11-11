@@ -1,6 +1,6 @@
 // Note extractor page: wires sources, extractor, player, timeline, codec and storage together.
 
-import { getConfig, load, loadAll, loadImpl, registry } from './registry.js';
+import { getConfig, load, loadAll, loadImpl, NO_EXTRACTOR, registry } from './registry.js';
 import { runExtractor } from './extractors/index.js';
 import { cropNotes, filterRange, shiftNotes, sortNotes } from './noteset.js';
 import { midiToName } from './music.js';
@@ -9,6 +9,7 @@ import { analysisBlob, buildAnalysis, summarizeStats } from './analysis.js';
 import { Player } from './player.js';
 import { Timeline } from './timeline.js';
 import { computeLayers } from './spectrum.js';
+import { guessSongInfo } from './metadata.js';
 
 const MAX_LISTEN_SECONDS = 20 * 60;
 const DETECT_RANGE = { min: 33, max: 100 };   // A1..E7: detection always covers this
@@ -17,6 +18,8 @@ const VIEW_PADDING = 3;                       // semitones shown around the dete
 const SPEED = { min: 0.25, max: 1.5 };
 const LAYER_VIEW = { min: 40, max: 88 };      // rows shown at least, with a debug layer on
 const LAYER_KEY = 'synesthesia.layer';
+const NO_DETECTOR_HINT = 'No detector: the timeline starts empty with a debug layer on, and you draw the notes '
+    + 'yourself in edit mode.';
 const LAYER_HINTS = {
     spectrogram: 'Energy at each pitch over time; brighter is louder. One played note lights up its own row '
         + 'and its overtones 12, 19, 24 and 28 semitones above, so a note looks like a stack and a chord like '
@@ -42,6 +45,9 @@ const el = {
     followPlayhead: $('followPlayhead'), cropDisplay: $('cropDisplay'), cropStartButton: $('cropStartButton'),
     cropEndButton: $('cropEndButton'), cropResetButton: $('cropResetButton'), cropFitButton: $('cropFitButton'),
     titleInput: $('titleInput'), saveButton: $('saveButton'), loadButton: $('loadButton'),
+    keepNotes: $('keepNotes'), keepNotesRow: $('keepNotesRow'), snapToggle: $('snapToggle'),
+    songInput: $('songInput'), artistInput: $('artistInput'), sourceInfo: $('sourceInfo'),
+    extraFields: $('extraFields'), addExtraButton: $('addExtraButton'),
     editToggle: $('editToggle'), undoButton: $('undoButton'), redoButton: $('redoButton'), editHint: $('editHint'),
     layerSelect: $('layerSelect'), layerFloor: $('layerFloor'), layerStatus: $('layerStatus'), layerHint: $('layerHint'),
     folderRow: $('folderRow'), folderName: $('folderName'), folderButton: $('folderButton'), saveStatus: $('saveStatus'),
@@ -49,6 +55,7 @@ const el = {
 
 const state = {
     clip: null,          // AudioClip in memory
+    source: null,        // { type: 'tab' | 'file', label } where the clip came from
     noteSet: null,       // NoteSet for the whole clip
     crop: { start: 0, end: 0 },
     pitchCrop: null,     // { min, max } MIDI notes kept, inclusive
@@ -134,6 +141,7 @@ function fitPitchCrop() {
     } else {
         state.pitchCrop = null;
         state.pitchCropMoved = false;
+        timeline.setPitchCrop(0, 127);   // no notes: nothing to crop, so no handles or shading
         player.setNotes([]);
         refresh();
     }
@@ -153,8 +161,8 @@ function refresh() {
     el.clipRow.hidden = !state.clip || listening;
     el.clearButton.disabled = extracting;
 
-    el.extractButton.disabled = !state.clip || listening || extracting;
-    el.extractButton.textContent = state.noteSet && state.clip ? 'Find notes again' : 'Find notes';
+    el.extractButton.disabled = !state.clip || listening || extracting || (!extractor && !state.noteSet?.notes.length);
+    el.extractButton.textContent = !extractor ? 'Clear notes' : state.noteSet && state.clip ? 'Find notes again' : 'Find notes';
     el.cancelButton.hidden = !extracting;
     el.progress.hidden = !extracting;
 
@@ -164,6 +172,7 @@ function refresh() {
     el.cropFitButton.disabled = !state.clip || listening;
     el.playButton.textContent = player?.playing ? '❚❚ Pause' : '▶ Play';
     el.editToggle.disabled = !state.noteSet || listening;
+    el.keepNotesRow.hidden = !state.noteSet?.notes.length;
     el.editHint.hidden = !el.editToggle.checked;
     el.undoButton.disabled = !state.history.length;
     el.redoButton.disabled = !state.future.length;
@@ -224,6 +233,15 @@ async function setupSources() {
     }
     const tab = sources.find((s) => s.id === 'tab');
     el.sourceHint.textContent = tab ? tab.hint : '';
+    // Say why a configured source is missing, instead of hiding it silently.
+    if (!tab && config.sources.includes('tab')) {
+        el.sourceHint.textContent = window.isSecureContext
+            ? 'Listening to a tab needs Chrome or Edge on a computer.'
+            : 'Listening to a tab only works on https or localhost. Open this page at http://localhost:8000/extract.html.';
+    } else if (!tab && !config.sources.includes('tab') && /[?&]sources=/.test(location.search)) {
+        el.sourceHint.textContent = 'Only some audio sources are on, because the address sets “sources”. '
+            + 'Remove it from the address to listen to a tab.';
+    }
     if (!sources.length) setStatus(el.audioStatus, 'None of the configured audio sources work in this browser.', 'error');
 }
 
@@ -260,7 +278,7 @@ async function stopLive(message = '') {
             return;
         }
         if (message) setStatus(el.audioStatus, message);
-        await useClip(clip);
+        await useClip(clip, source);
     } catch (err) {
         setStatus(el.audioStatus, err.message, 'error');
         refresh();
@@ -272,14 +290,30 @@ async function openFile(source, file) {
     try {
         const clip = await source.open(file);
         setStatus(el.audioStatus);
-        if (!el.titleInput.value) el.titleInput.value = slugify(file.name);
-        await useClip(clip);
+        await useClip(clip, source);
     } catch (err) {
         setStatus(el.audioStatus, err.message, 'error');
     }
 }
 
-async function useClip(clip) {
+/** Fill the song fields from the clip's label (a file name or tab title), and name the file after it. */
+function useSourceInfo(clip, source) {
+    const type = source?.id ?? 'unknown';
+    state.source = { type, label: clip.label ?? '' };
+    const guess = guessSongInfo(clip.label, { isFile: source?.kind === 'file' });
+    el.songInput.value = guess?.song ?? '';
+    el.artistInput.value = guess?.artist ?? '';
+    el.sourceInfo.textContent = clip.label ? `From ${type === 'tab' ? 'the tab' : 'the file'} “${clip.label}”` : '';
+    const name = [guess?.artist, guess?.song].filter(Boolean).join(' - ');
+    el.titleInput.value = name ? slugify(name) : (el.titleInput.value || defaultTitle());
+}
+
+async function useClip(clip, source = null) {
+    // With "Keep my notes", the current notes carry over to the new audio.
+    const kept = el.keepNotes.checked && state.noteSet?.notes.length
+        ? { ...state.noteSet, pitchTrack: undefined, stats: undefined } : null;
+    const keptCrop = kept ? state.pitchCrop : null;
+    el.keepNotes.checked = false;
     state.clip = clip;
     state.noteSet = null;
     state.pitchCrop = null;
@@ -294,7 +328,17 @@ async function useClip(clip) {
     setCrop(0, clip.duration);
     fitCropToAudio();
     el.clipInfo.textContent = `${formatTime(clip.duration, 0)} of audio in memory`;
-    if (!el.titleInput.value) el.titleInput.value = defaultTitle();
+    if (kept) {
+        if (!el.songInput.value && !el.artistInput.value) useSourceInfo(clip, source);
+        else state.source = { type: source?.id ?? 'unknown', label: clip.label ?? '' };
+        state.pitchCropMoved = Boolean(keptCrop);
+        showNotes(kept, keptCrop);
+        setStatus(el.notesStatus, `Kept ${kept.notes.length} notes. Press Cmd/Ctrl+A to select them all, `
+            + 'then drag them to line up with the new audio.', 'ok');
+        setEditing(true);
+        return;
+    }
+    useSourceInfo(clip, source);
     refresh();
     await extract();
 }
@@ -349,9 +393,11 @@ function updateLayer() {
     el.layerHint.textContent = LAYER_HINTS[kind] ?? '';
     if (!state.layerJob) el.layerStatus.textContent = '';
     updateView();
-    if (!kind || !state.clip) return timeline.setLayer(null);
-    if (state.layers) return timeline.setLayer(state.layers, kind);
-    if (!state.layerJob) computeLayerData();
+    timeline.setOnsets(state.layers?.onsets ?? []);
+    // Onsets (for snapping) come from the same analysis, so editing needs it too.
+    const needed = Boolean(kind || el.editToggle.checked) && Boolean(state.clip);
+    if (needed && !state.layers && !state.layerJob) computeLayerData();
+    timeline.setLayer(kind && state.layers ? state.layers : null, kind);
 }
 
 async function computeLayerData() {
@@ -382,7 +428,8 @@ async function setupExtractors() {
         const impl = await loadImpl('extractor', id);
         el.extractorSelect.append(new Option(impl.name, id, false, id === config.extractor));
     }
-    el.extractorHint.textContent = extractor.description ?? '';
+    el.extractorSelect.append(new Option('None (draw notes by hand)', NO_EXTRACTOR, false, !extractor));
+    el.extractorHint.textContent = extractor ? extractor.description ?? '' : NO_DETECTOR_HINT;
     renderSettings();
     updateView();
 }
@@ -409,6 +456,7 @@ function saveTuned(id, values) {
 
 /** Current option overrides for the active extractor (only valid, known keys). */
 function tunedOptions() {
+    if (!extractor) return {};
     const saved = loadTuned(extractor.id);
     const out = {};
     for (const s of extractor.settings ?? []) {
@@ -419,7 +467,7 @@ function tunedOptions() {
 }
 
 function renderSettings() {
-    const list = extractor.settings ?? [];
+    const list = extractor?.settings ?? [];
     el.settingsPanel.hidden = list.length === 0;
     el.settingsGrid.replaceChildren();
     const tuned = tunedOptions();
@@ -477,6 +525,7 @@ async function extract() {
     }
     if (state.history.length && !confirm('Find notes again? This replaces the notes you edited.')) return;
     resetHistory();
+    if (!extractor) return startWithoutDetector();
     const controller = new AbortController();
     state.extraction = controller;
     el.progress.value = 0;
@@ -523,6 +572,18 @@ function showNotes(noteSet, pitchCrop = null) {
     updateView();
 }
 
+/** No detector: start with no notes, a debug layer to read from, and edit mode on. */
+function startWithoutDetector() {
+    showNotes({ notes: [], range: { minMidi: DETECT_RANGE.min, maxMidi: DETECT_RANGE.max }, extractor: 'none' });
+    setStatus(el.notesStatus, 'No detector. Draw the notes yourself: drag on empty space in the timeline to add one.', 'ok');
+    if (!el.layerSelect.value) {
+        el.layerSelect.value = 'spectrogram';
+        saveLayerPrefs();
+        updateLayer();
+    }
+    setEditing(true);
+}
+
 // ----- editing notes -----
 
 const MAX_HISTORY = 200;
@@ -536,6 +597,7 @@ function resetHistory() {
 function setEditing(on) {
     el.editToggle.checked = on && Boolean(state.noteSet);
     timeline.setEditing(el.editToggle.checked);
+    updateLayer();
     refresh();
 }
 
@@ -548,16 +610,15 @@ function beginEdit() {
 
 /** After an edit: re-sort, keep the edited note inside the pitch crop, and update playback. */
 function notesEdited() {
-    const selected = timeline.selected;
     state.noteSet.notes = sortNotes(state.noteSet.notes);
     timeline.setNotes(state.noteSet.notes, state.noteSet.pitchTrack ?? null);
-    timeline.select(selected);
     const crop = state.pitchCrop;
+    const edited = detectedRange([...timeline.selection]);
     if (!crop) {
         const found = detectedRange(state.noteSet.notes);
         if (found) setPitchCrop(found.min, found.max, { moved: false });
-    } else if (selected && (selected.midi < crop.min || selected.midi > crop.max)) {
-        setPitchCrop(Math.min(crop.min, selected.midi), Math.max(crop.max, selected.midi));
+    } else if (edited && (edited.min < crop.min || edited.max > crop.max)) {
+        setPitchCrop(Math.min(crop.min, edited.min), Math.max(crop.max, edited.max));
     } else {
         player.setNotes(keptNotes());
     }
@@ -566,10 +627,10 @@ function notesEdited() {
 }
 
 function deleteSelected() {
-    const note = timeline.selected;
-    if (!note || !state.noteSet) return;
+    const doomed = timeline.selection;
+    if (!doomed.size || !state.noteSet) return;
     beginEdit();
-    state.noteSet.notes = state.noteSet.notes.filter((n) => n !== note);
+    state.noteSet.notes = state.noteSet.notes.filter((n) => !doomed.has(n));
     timeline.select(null);
     notesEdited();
 }
@@ -669,13 +730,46 @@ async function chooseFolder() {
     }
 }
 
+// ----- extra details: free-form name/value pairs saved with the notes -----
+
+function addExtraField(name = '', value = '') {
+    const row = Object.assign(document.createElement('div'), { className: 'extra-row' });
+    const key = Object.assign(document.createElement('input'), { type: 'text', value: name, placeholder: 'Name, e.g. tuning', spellcheck: false });
+    const val = Object.assign(document.createElement('input'), { type: 'text', value, placeholder: 'Value, e.g. Drop D', spellcheck: false });
+    const remove = Object.assign(document.createElement('button'), { textContent: '×', title: 'Remove this detail' });
+    remove.addEventListener('click', () => row.remove());
+    row.append(key, val, remove);
+    el.extraFields.append(row);
+    return key;
+}
+
+/** The filled-in details as { name: value }; rows without a name are skipped. */
+function readExtraFields() {
+    const out = {};
+    for (const row of el.extraFields.querySelectorAll('.extra-row')) {
+        const [key, val] = row.querySelectorAll('input');
+        const name = key.value.trim();
+        if (name) out[name] = val.value.trim();
+    }
+    return out;
+}
+
+function setExtraFields(extra) {
+    el.extraFields.replaceChildren();
+    for (const [name, value] of Object.entries(extra)) addExtraField(name, value);
+}
+
 async function save() {
     if (!state.noteSet) return;
     const title = el.titleInput.value.trim() || defaultTitle();
     const notes = cropNotes(keptNotes(), state.crop.start, state.crop.end);
     if (!notes.length) return setStatus(el.saveStatus, 'There are no notes inside the crop.', 'error');
     const range = { minMidi: state.pitchCrop.min, maxMidi: state.pitchCrop.max };
-    const blob = codec.encode({ ...state.noteSet, notes, range }, { title, duration: state.crop.end - state.crop.start });
+    const song = { title: el.songInput.value.trim(), artist: el.artistInput.value.trim() };
+    const source = state.clip && state.source
+        ? { ...state.source, start: state.crop.start, length: state.clip.duration } : undefined;
+    const extra = readExtraFields();
+    const blob = codec.encode({ ...state.noteSet, notes, range }, { title, duration: state.crop.end - state.crop.start, song, source, extra });
     try {
         const { filename, location } = await storage.save(slugify(title) + codec.extension, blob);
         setStatus(el.saveStatus, `Saved ${notes.length} notes to ${filename} in ${location}.`, 'ok');
@@ -701,6 +795,12 @@ async function openNotes() {
         state.pitchCropMoved = false;
         showNotes({ ...noteSet, notes: sortNotes(shiftNotes(noteSet.notes, offset)) });
         if (meta.title) el.titleInput.value = meta.title;
+        if (meta.song) {
+            el.songInput.value = meta.song.title ?? '';
+            el.artistInput.value = meta.song.artist ?? '';
+        }
+        setExtraFields(meta.extra ?? {});
+        if (!state.clip && meta.source?.label) el.sourceInfo.textContent = `Notes from “${meta.source.label}”`;
         const where = state.clip ? ` from the crop start (${formatTime(offset)})` : '';
         setStatus(el.saveStatus, `Opened ${noteSet.notes.length} notes from ${file.name}${where}.`, 'ok');
         refresh();
@@ -729,6 +829,11 @@ function onKey(e) {
     const tag = e.target.tagName;
     if (tag === 'INPUT' && e.target.type === 'text') return;
     if (tag === 'SELECT' || tag === 'TEXTAREA') return;
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a' && el.editToggle.checked && state.noteSet) {
+        e.preventDefault();
+        timeline.select([...state.noteSet.notes]);
+        return;
+    }
     if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) {
         e.preventDefault();
         if (e.key.toLowerCase() === 'y' || e.shiftKey) redo(); else undo();
@@ -762,7 +867,10 @@ function onKey(e) {
 
 async function main() {
     config = getConfig();
-    [extractor, codec, storage] = await Promise.all([load('extractor', config), load('codec', config), load('storage', config)]);
+    [extractor, codec, storage] = await Promise.all([
+        config.extractor === NO_EXTRACTOR ? null : load('extractor', config),
+        load('codec', config), load('storage', config),
+    ]);
     const voiceImpl = await load('voice', config);
 
     timeline = new Timeline(el.timeline, {
@@ -790,8 +898,9 @@ async function main() {
     el.cancelButton.addEventListener('click', () => state.extraction?.abort());
     el.analysisButton.addEventListener('click', exportAnalysis);
     el.extractorSelect.addEventListener('change', async () => {
-        extractor = await loadImpl('extractor', el.extractorSelect.value);
-        el.extractorHint.textContent = extractor.description ?? '';
+        const id = el.extractorSelect.value;
+        extractor = id === NO_EXTRACTOR ? null : await loadImpl('extractor', id);
+        el.extractorHint.textContent = extractor ? extractor.description ?? '' : NO_DETECTOR_HINT;
         renderSettings();
         settingsChanged();
     });
@@ -809,6 +918,8 @@ async function main() {
     el.cropFitButton.addEventListener('click', fitCropToAudio);
     el.editToggle.addEventListener('change', () => setEditing(el.editToggle.checked));
     el.undoButton.addEventListener('click', undo);
+    el.addExtraButton.addEventListener('click', () => addExtraField().focus());
+    el.snapToggle.addEventListener('change', () => timeline.setSnapping(el.snapToggle.checked));
     el.redoButton.addEventListener('click', redo);
     el.layerSelect.addEventListener('change', () => { saveLayerPrefs(); updateLayer(); });
     el.layerFloor.addEventListener('input', () => { timeline.setLayerFloor(Number(el.layerFloor.value)); saveLayerPrefs(); });

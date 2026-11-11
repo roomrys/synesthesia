@@ -18,10 +18,10 @@ function waitFor(check, timeoutMs = 15000, what = 'condition') {
     });
 }
 
-async function loadPage() {
+async function loadPage(query = 'sources=file&extractor=yin') {
     const frame = document.createElement('iframe');
     frame.style.cssText = 'width: 1200px; height: 900px; position: absolute; left: -10000px;';
-    frame.src = '../extract.html?sources=file';
+    frame.src = `../extract.html?${query}`;
     document.body.append(frame);
     await waitFor(() => frame.contentDocument?.body?.dataset.ready === 'true', 15000, 'page ready');
     return { frame, doc: frame.contentDocument };
@@ -72,8 +72,8 @@ test('page: opening an audio file finds notes and enables playback and saving', 
         const { timeline, player } = frame.contentWindow.extractor;
         const canvas = doc.getElementById('timeline');
         const rect = canvas.getBoundingClientRect();
-        const pointer = (type, x, y) => canvas.dispatchEvent(new frame.contentWindow.PointerEvent(type, {
-            clientX: rect.left + x, clientY: rect.top + y, pointerId: 1, bubbles: true,
+        const pointer = (type, x, y, extra = {}) => canvas.dispatchEvent(new frame.contentWindow.PointerEvent(type, {
+            clientX: rect.left + x, clientY: rect.top + y, pointerId: 1, bubbles: true, ...extra,
         }));
         const x = rect.width / 2;
         pointer('pointerdown', x, timeline.pitchCropTopY);
@@ -126,9 +126,14 @@ test('page: opening an audio file finds notes and enables playback and saving', 
         pointer('pointermove', timeline.timeToX(0.1), row(62));
         pointer('pointermove', timeline.timeToX(0.2), row(62));
         pointer('pointerup', timeline.timeToX(0.2), row(62));
-        // Hovering empty space previews where a note and its overtones would go.
-        pointer('pointermove', timeline.timeToX(1.0), row(50));
+        // Hovering empty space previews where a note and its overtones would go:
+        // the box starts at the cursor (unless it snapped) and extends to the right.
+        timeline.setSnapping(false);
+        const hoverAt = Math.round(timeline.timeToX(1.0));
+        pointer('pointermove', hoverAt, row(50));
         assertEqual(timeline.hover?.midi, 50, 'hover preview row:');
+        assertClose(timeline.hover.x, hoverAt, 0.5, 'hover box left edge at the cursor:');
+        timeline.setSnapping(true);
         const notes = () => state.noteSet.notes;
         assertEqual(notes().length, 4, 'notes after drawing:');
         assertEqual(notes()[0].midi, 62, 'drawn pitch:');
@@ -154,6 +159,28 @@ test('page: opening an audio file finds notes and enables playback and saving', 
         assertEqual(notes()[0].midi, 62, 'second undo restores the pitch:');
         key('z', { metaKey: true, shiftKey: true });
         assertEqual(notes()[0].midi, 63, 'redo:');
+
+        // Shift+drag a box around everything, move the group, then delete it.
+        const top = timeline.rollTop + 2;
+        const bottom = timeline.height - 2;
+        pointer('pointerdown', timeline.timeToX(0.01), top, { shiftKey: true });
+        pointer('pointermove', timeline.timeToX(1.9), bottom, { shiftKey: true });
+        pointer('pointerup', timeline.timeToX(1.9), bottom, { shiftKey: true });
+        assertEqual(timeline.selection.size, 4, 'box-selected:');
+        const before = notes().map((n) => n.start);
+        const grab = notes()[1];
+        const gx = timeline.timeToX(grab.start + grab.duration / 2);
+        pointer('pointerdown', gx, row(grab.midi));
+        pointer('pointermove', gx + 20, row(grab.midi), { altKey: true });
+        pointer('pointerup', gx + 20, row(grab.midi), { altKey: true });
+        const dt = notes()[1].start - before[1];
+        assert(dt > 0, 'group did not move');
+        notes().forEach((n, i) => assertClose(n.start - before[i], dt, 1e-6, `note ${i} moved with the group:`));
+        key('Delete');
+        assertEqual(notes().length, 0, 'notes after deleting the group:');
+        doc.getElementById('undoButton').click();
+        assertEqual(notes().length, 4, 'notes after undoing the delete:');
+
         key('e');
         assert(!timeline.editing, 'E should leave edit mode');
 
@@ -164,6 +191,93 @@ test('page: opening an audio file finds notes and enables playback and saving', 
         assert(shown !== '0:00.0', `time display did not move (${shown})`);
         doc.getElementById('playButton').click();
         await waitFor(() => doc.getElementById('playButton').textContent.includes('Play'), 3000, 'paused');
+
+        // No detector: notes are cleared, a spectrogram is shown and edit mode is on.
+        layerSelect.value = '';
+        layerSelect.dispatchEvent(new Event('change'));
+        const detector = doc.getElementById('extractorSelect');
+        frame.contentWindow.confirm = () => true;   // the notes were edited above
+        detector.value = 'none';
+        detector.dispatchEvent(new Event('change'));
+        await waitFor(() => /No detector/.test(notesStatus.textContent), 5000, 'no-detector status');
+        assertEqual(state.noteSet.notes.length, 0, 'notes without a detector:');
+        assertEqual(layerSelect.value, 'spectrogram', 'layer turned on:');
+        assert(timeline.editing, 'edit mode not on');
+        assert(doc.getElementById('settingsPanel').hidden, 'settings shown without a detector');
+        assertEqual(doc.getElementById('extractButton').textContent, 'Clear notes', 'button:');
+    } finally {
+        frame.remove();
+    }
+});
+
+async function openWav(doc, name, segments) {
+    const file = new File([wavBytes(sequence(segments, 44100, { harmonics: [1, 0.5, 0.3] }), 44100)], name, { type: 'audio/wav' });
+    const input = doc.querySelector('#sourceButtons input[type="file"]');
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    input.files = transfer.files;
+    input.dispatchEvent(new Event('change'));
+}
+
+test('page: song details, dragging a crop past the edge, and keeping notes for new audio', async () => {
+    const { frame, doc } = await loadPage();
+    try {
+        const notesStatus = doc.getElementById('notesStatus');
+        await openWav(doc, 'Some Band - Their Song.wav', [{ seconds: 0.3 }, { midi: 64, seconds: 0.4 }, { midi: 67, seconds: 0.4 }, { seconds: 0.3 }]);
+        await waitFor(() => /Found 2 notes/.test(notesStatus.textContent), 15000, 'extraction');
+        assertEqual(doc.getElementById('songInput').value, 'Their Song', 'song:');
+        assertEqual(doc.getElementById('artistInput').value, 'Some Band', 'artist:');
+        assertEqual(doc.getElementById('titleInput').value, 'some-band-their-song', 'file name:');
+
+        // Extra details: add a row, fill it in, and read it back the way save() does.
+        doc.getElementById('addExtraButton').click();
+        const [extraName, extraValue] = doc.querySelectorAll('#extraFields input');
+        extraName.value = 'tuning';
+        extraValue.value = 'Drop D';
+        doc.getElementById('addExtraButton').click();   // an empty row is ignored
+        assertEqual(doc.querySelectorAll('#extraFields .extra-row').length, 2, 'detail rows:');
+
+        // Dragging the crop start past the right edge scrolls the view and keeps cropping.
+        const { state, timeline } = frame.contentWindow.extractor;
+        timeline.setView(0, 0.5);
+        const canvas = doc.getElementById('timeline');
+        const rect = canvas.getBoundingClientRect();
+        const pointer = (type, x, y) => canvas.dispatchEvent(new frame.contentWindow.PointerEvent(type, {
+            clientX: rect.left + x, clientY: rect.top + y, pointerId: 1, bubbles: true,
+        }));
+        const y = timeline.rollTop + 20;
+        pointer('pointerdown', timeline.timeToX(state.crop.start), y);
+        pointer('pointermove', timeline.width + 40, y);   // far past the edge: fastest scrolling
+        await waitFor(() => timeline.view.start > 0.3, 5000, 'auto-scroll');
+        pointer('pointerup', timeline.width + 40, y);
+        assert(state.crop.start > 0.5, `crop start ${state.crop.start} did not follow the scroll`);
+
+        // Keep the notes, open new audio: the notes stay, and edit mode is on to line them up.
+        assert(!doc.getElementById('keepNotesRow').hidden, 'keep-notes option hidden');
+        doc.getElementById('keepNotes').click();
+        await openWav(doc, 'take two.wav', [{ seconds: 1 }, { midi: 64, seconds: 0.4 }, { midi: 67, seconds: 0.4 }]);
+        await waitFor(() => /Kept 2 notes/.test(notesStatus.textContent), 15000, 'kept notes');
+        assertEqual(state.noteSet.notes.length, 2, 'kept notes:');
+        assertEqual(state.clip.label, 'take two.wav', 'new clip:');
+        assert(timeline.editing, 'edit mode not on');
+        assertEqual(doc.getElementById('songInput').value, 'Their Song', 'song details kept:');
+        assert(!doc.getElementById('keepNotes').checked, 'keep option should reset');
+    } finally {
+        frame.remove();
+    }
+});
+
+test('page: with the default config there is no detector; new audio opens ready to draw notes', async () => {
+    const { frame, doc } = await loadPage('sources=file');
+    try {
+        assertEqual(doc.getElementById('extractorSelect').value, 'none', 'default detector:');
+        await openWav(doc, 'tune.wav', [{ seconds: 0.2 }, { midi: 64, seconds: 0.4 }, { seconds: 0.2 }]);
+        const notesStatus = doc.getElementById('notesStatus');
+        await waitFor(() => /No detector/.test(notesStatus.textContent), 15000, 'no-detector status');
+        const { state, timeline } = frame.contentWindow.extractor;
+        assertEqual(state.noteSet.notes.length, 0, 'notes:');
+        assert(timeline.editing, 'edit mode not on');
+        assertEqual(doc.getElementById('layerSelect').value, 'spectrogram', 'layer:');
     } finally {
         frame.remove();
     }

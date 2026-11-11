@@ -19,7 +19,9 @@ A new page (`extract.html`) that listens to audio, detects the notes, and saves 
 - Play the detected notes back over the audio to check them by ear, looped and slowed down if you like (pitch stays the same)
 - Crop to the part you want, in time and in pitch
 - Debug layers (spectrogram and harmonic sum) under the notes, to see what the detector hears
-- Edit the notes by hand (add, move, resize, delete, undo) to correct the detector
+- Edit the notes by hand (add, move, resize, delete, undo) to correct the detector, or skip the detector and draw every note yourself
+- Snap notes to where notes start in the audio, select and move groups of notes, and keep your notes when you load the song again to line them up
+- Song, artist and any other details (tuning, capo…) saved with the notes; song and artist are guessed from the file name or tab title
 - Save the notes as a `.synesthesia` file (readable JSON) in a folder you choose
 
 Audio is only held in memory while you use the page. It is never saved or uploaded; only the detected notes are saved.

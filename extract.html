@@ -33,6 +33,10 @@
                 <span id="clipInfo"></span>
                 <button id="clearButton">Clear audio</button>
             </div>
+            <label class="check" id="keepNotesRow" hidden
+                title="Use the notes you have with the next audio, instead of finding notes again"><input
+                    type="checkbox" id="keepNotes"> Keep my notes for the next audio (then line them up by
+                hand)</label>
             <p class="status" id="audioStatus" role="status"></p>
         </section>
 
@@ -92,15 +96,21 @@
                 <label class="check" title="E"><input type="checkbox" id="editToggle" disabled> Edit notes</label>
                 <button id="undoButton" disabled title="Cmd/Ctrl+Z">Undo</button>
                 <button id="redoButton" disabled title="Shift+Cmd/Ctrl+Z">Redo</button>
+                <label class="check" title="Snap to note starts heard in the audio and to other notes. Hold Alt to place freely."><input
+                        type="checkbox" id="snapToggle" checked> Snap</label>
             </div>
             <p class="hint" id="layerHint" hidden></p>
             <p class="hint" id="editHint" hidden>Editing: drag on empty space to add a note, drag a note to move it
                 (you'll hear its pitch), drag its ends to resize it. Dashed boxes show where the note's overtones
-                (×2, ×3…) sound, so you can line its whole stack up with the debug layer. <kbd>Delete</kbd> removes the selected note,
+                (×2, ×3…) sound, so you can line its whole stack up with the debug layer. <kbd>Shift</kbd>+drag
+                selects a group (<kbd>Shift</kbd>+click adds or removes one note, <kbd>Cmd/Ctrl+A</kbd> selects all),
+                and dragging any selected note moves them all. Times snap to the blue ticks (where notes seem to start)
+                and to other notes; hold <kbd>Alt</kbd> to place freely. <kbd>Delete</kbd> removes the selected notes,
                 <kbd>Esc</kbd> deselects, and <kbd>Cmd/Ctrl+Z</kbd> undoes. Scroll or use the top strip to move
                 around. Finding notes again replaces your edits.</p>
             <p class="hint">Scroll to zoom, drag to pan, click to jump. Drag the yellow handles to crop: the vertical
-                ones set the time, the horizontal ones set the lowest and highest notes kept. Press
+                ones set the time, the horizontal ones set the lowest and highest notes kept. Dragging past
+                the left or right edge scrolls. Press
                 <kbd>[</kbd> and <kbd>]</kbd> to set the time crop at the playhead. <kbd>Space</kbd> plays and pauses,
                 <kbd>L</kbd> toggles looping, <kbd>-</kbd> and <kbd>=</kbd> change speed (pitch stays the same).</p>
         </section>
@@ -111,6 +121,16 @@
                 <label>Name <input type="text" id="titleInput" placeholder="my-song" spellcheck="false"></label>
                 <button id="saveButton" class="primary" disabled>Save notes</button>
                 <button id="loadButton">Open notes file…</button>
+            </div>
+            <div class="row">
+                <label>Song <input type="text" id="songInput" placeholder="Song title" spellcheck="false"></label>
+                <label>Artist <input type="text" id="artistInput" placeholder="Artist" spellcheck="false"></label>
+                <span class="hint" id="sourceInfo"></span>
+            </div>
+            <div class="extra" id="extraFields"></div>
+            <div class="row">
+                <button id="addExtraButton" title="Anything else worth keeping with the notes">+ Add detail</button>
+                <span class="hint">For example tuning, capo, tempo, key or which part this is.</span>
             </div>
             <div class="row" id="folderRow" hidden>
                 <span>Saving to <strong id="folderName">a folder you choose</strong></span>

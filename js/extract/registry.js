@@ -23,6 +23,9 @@ export const registry = {
     },
 };
 
+/** Config value for "no detector": draw notes by hand. Not an implementation. */
+export const NO_EXTRACTOR = 'none';
+
 // Members every implementation of a kind must have.
 const REQUIRED = {
     source: ['id', 'name', 'kind', 'isSupported'],

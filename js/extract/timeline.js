@@ -7,9 +7,13 @@
 // the pitch range (notes kept). Drag in the overview to move the view.
 //
 // In edit mode, dragging in the piano roll edits notes instead of panning:
-// drag empty space to add a note, drag a note to move it, drag its ends to
-// resize it. The timeline changes the note objects in place and reports
-// through onEditStart (before the first change, for undo) and onEdit (after).
+// drag empty space to add a note, drag a note to move it (with any other
+// selected notes), drag its ends to resize it, Shift+drag to box-select and
+// Shift+click to add or remove a note from the selection. Times snap to onsets
+// and to other notes unless snapping is off or Alt is held. Dragging past the
+// left or right edge scrolls. The timeline changes the note objects in place
+// and reports through onEditStart (before the first change, for undo) and
+// onEdit (after).
 
 import { midiToName, noteColor, overtones, pitchClass } from './music.js';
 
@@ -24,7 +28,10 @@ const SHARPS = new Set([1, 3, 6, 8, 10]);
 const EDGE_HIT = 5;          // pixels at each end of a note that resize it
 const MIN_NOTE = 0.03;       // shortest note you can draw, in seconds
 const OVERTONES = overtones(8);
-const HOVER_HALF_WIDTH = 28; // pixels each side of the cursor for the hover preview
+const HOVER_WIDTH = 56;      // pixels: the hover preview starts at the cursor and extends right
+const SNAP_PX = 8;           // snap to a target this close, in pixels
+const EDGE_ZONE = 30;        // pixels from the left/right edge where dragging scrolls
+const AUTO_SCROLL_RATE = 0.2;  // views per second at the edge (doubles far past it)
 
 const COLORS = {
     background: '#0d0d12',
@@ -39,6 +46,8 @@ const COLORS = {
     outsideLayer: 'rgba(0, 0, 0, 0.25)',
     playhead: '#ffffff',
     selected: '#ffffff',
+    onset: '#7fe7ff',
+    box: 'rgba(127, 231, 255, 0.12)',
     view: 'rgba(255, 255, 255, 0.7)',
     pitch: 'rgba(255, 255, 255, 0.45)',
     rejected: '#c8c8ff',
@@ -83,8 +92,10 @@ export class Timeline {
         this.onEdit = onEdit;             // () after a note was added, moved or resized
         this.onAudition = onAudition;     // (midi) to preview a pitch while editing
         this.editing = false;
-        this.selected = null;             // the selected note while editing
+        this.selection = new Set();       // selected notes while editing
         this.hover = null;                // { midi, x } where a note would be drawn, while editing
+        this.onsets = [];                 // sorted times where notes seem to start (from spectrum.js)
+        this.snapping = true;
         this.pitchCrop = { min: 40, max: 88 };   // kept notes, inclusive MIDI
         this.clip = null;
         this.duration = 0;
@@ -126,7 +137,8 @@ export class Timeline {
 
     setNotes(notes, pitchTrack = null) {
         this.notes = notes;
-        if (!notes.includes(this.selected)) this.selected = null;
+        const present = new Set(notes);
+        for (const n of this.selection) if (!present.has(n)) this.selection.delete(n);
         this.pitchTrack = pitchTrack;
         const end = notes.reduce((m, n) => Math.max(m, n.start + n.duration), 0);
         if (end > this.duration) {
@@ -139,15 +151,31 @@ export class Timeline {
     setEditing(on) {
         this.editing = on;
         if (!on) {
-            this.selected = null;
+            this.selection.clear();
             this.hover = null;
         }
         this.draw();
     }
 
-    select(note) {
-        this.selected = note;
+    /** Select a note, a list of notes, or nothing (null). */
+    select(notes) {
+        this.selection = new Set(!notes ? [] : Array.isArray(notes) ? notes : [notes]);
         this.draw();
+    }
+
+    /** The selected note if exactly one is selected. */
+    get selected() {
+        return this.selection.size === 1 ? [...this.selection][0] : null;
+    }
+
+    /** Times (seconds, any order) where notes seem to start; shown and snapped to while editing. */
+    setOnsets(times) {
+        this.onsets = Float64Array.from(times ?? []).sort();
+        this.draw();
+    }
+
+    setSnapping(on) {
+        this.snapping = on;
     }
 
     setHover(hover) {
@@ -366,6 +394,15 @@ export class Timeline {
         ctx.fillRect(GUTTER, top, this.plotWidth, WAVE_H);
         if (this.clip) this.drawPeaks(this.peaks(this.view.start, this.view.end, Math.floor(this.plotWidth)), top + 12, WAVE_H - 14, COLORS.wave);
 
+        // Onsets, while editing: short ticks along the bottom of the waveform.
+        if (this.editing && this.onsets.length) {
+            ctx.fillStyle = COLORS.onset;
+            const first = this.lowerBound(this.view.start);
+            for (let i = first; i < this.onsets.length && this.onsets[i] <= this.view.end; i++) {
+                ctx.fillRect(Math.round(this.timeToX(this.onsets[i])), top + WAVE_H - 7, 1, 7);
+            }
+        }
+
         // Time ruler.
         const span = this.view.end - this.view.start;
         const step = niceStep(span, this.plotWidth);
@@ -443,23 +480,59 @@ export class Timeline {
                 ctx.fillText(midiToName(n.midi), x + 3, y + rowH / 2 + 3.5);
             }
         }
-        const sel = this.selected;
-        if (sel) this.renderOvertones(sel.midi, this.timeToX(sel.start), this.timeToX(sel.start + sel.duration), 1);
+        const single = this.selected;
+        if (single) this.renderOvertones(single.midi, this.timeToX(single.start), this.timeToX(single.start + single.duration), 1);
         if (this.hover && !this.drag) {
             const { midi, x } = this.hover;
             ctx.globalAlpha = 0.5;
             ctx.strokeStyle = noteColor(midi);
-            ctx.strokeRect(x - HOVER_HALF_WIDTH + 0.5, this.midiToY(midi) + 0.5, HOVER_HALF_WIDTH * 2 - 1, rowH - 1);
+            ctx.strokeRect(x + 0.5, this.midiToY(midi) + 0.5, HOVER_WIDTH - 1, rowH - 1);
+            if (rowH >= 8) {
+                ctx.fillStyle = noteColor(midi);
+                ctx.textAlign = 'center';
+                ctx.font = '9px system-ui, sans-serif';
+                ctx.fillText(midiToName(midi), x + HOVER_WIDTH / 2, this.midiToY(midi) + rowH / 2 + 3);
+            }
             ctx.globalAlpha = 1;
-            this.renderOvertones(midi, x - HOVER_HALF_WIDTH, x + HOVER_HALF_WIDTH, 0.6);
+            this.renderOvertones(midi, x, x + HOVER_WIDTH, 0.6);
         }
-        if (sel) {
-            const x = this.timeToX(sel.start);
-            ctx.strokeStyle = COLORS.selected;
-            ctx.lineWidth = 2;
-            ctx.strokeRect(x - 1, this.midiToY(sel.midi), Math.max(2, this.timeToX(sel.start + sel.duration) - x) + 2, rowH);
+        ctx.strokeStyle = COLORS.selected;
+        ctx.lineWidth = 2;
+        for (const n of this.selection) {
+            const x = this.timeToX(n.start);
+            ctx.strokeRect(x - 1, this.midiToY(n.midi), Math.max(2, this.timeToX(n.start + n.duration) - x) + 2, rowH);
         }
-        ctx.restore();
+        const d = this.drag;
+        if (d?.snappedTo !== undefined && d.snappedTo !== null) {
+            const x = Math.round(this.timeToX(d.snappedTo)) + 0.5;
+            ctx.strokeStyle = COLORS.onset;
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(x, this.rollTop);
+            ctx.lineTo(x, this.height);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+        if (d?.type === 'box') {
+            const x1 = this.timeToX(Math.min(d.t0, d.t1));
+            const x2 = this.timeToX(Math.max(d.t0, d.t1));
+            const y1 = Math.min(d.y0, d.y1);
+            const h = Math.abs(d.y1 - d.y0);
+            ctx.fillStyle = COLORS.box;
+            ctx.fillRect(x1, y1, x2 - x1, h);
+            ctx.strokeStyle = COLORS.onset;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x1 + 0.5, y1 + 0.5, x2 - x1, h);
+        }
+                ctx.restore();
+    }
+
+    /** Centre of the visible part of [x1, x2], for labels inside a box. */
+    labelX(x1, x2) {
+        const a = Math.max(x1, GUTTER);
+        const b = Math.min(x2, this.width);
+        return (a + Math.max(a, b)) / 2;
     }
 
     /**
@@ -475,14 +548,15 @@ export class Timeline {
         ctx.lineWidth = 1.25;
         ctx.setLineDash([4, 3]);
         ctx.font = '9px system-ui, sans-serif';
-        ctx.textAlign = 'right';
+        ctx.textAlign = 'center';
+        const labelX = this.labelX(x1, x2);
         for (const { harmonic, semitones } of OVERTONES) {
             const pitch = midi + semitones;
             if (pitch > this.maxMidi + 0.5) break;
             const y = this.midiToY(pitch);
             ctx.globalAlpha = strength * (0.75 - 0.07 * (harmonic - 2));
             ctx.strokeRect(x1 + 0.5, y + 0.5, w - 1, Math.max(1, rowH - 1));
-            if (rowH >= 8) ctx.fillText(`×${harmonic}`, x1 - 3, y + rowH / 2 + 3);
+            if (rowH >= 8 && w >= 18) ctx.fillText(`×${harmonic}`, labelX, y + rowH / 2 + 3);
         }
         ctx.restore();
     }
@@ -709,14 +783,23 @@ export class Timeline {
             }
             const handle = this.duration ? this.hitHandle(x, y) : null;
             const inRoll = y >= this.rollTop && x >= GUTTER;
-            this.setHover(this.editing && inRoll && !handle ? { midi: this.rowAt(y), x } : null);
+            const hoverX = inRoll ? this.timeToX(this.snap(this.xToTime(x), this.snapTargets(), e.altKey).t) : x;
+            this.setHover(this.editing && inRoll && !handle ? { midi: this.rowAt(y), x: hoverX } : null);
             this.canvas.style.cursor = handle ? (handle.startsWith('pitch') ? 'ns-resize' : 'ew-resize')
                 : this.editing && inRoll ? 'crosshair' : 'default';
             return;
         }
+        this.drag.free = e.altKey;
+        this.dragMove(x, y);
+    }
+
+    /** Apply the current drag at (x, y). Also called while auto-scrolling. */
+    dragMove(x, y) {
         const d = this.drag;
-        if (d.type === 'note' || d.type === 'create') {
+        if (!d || d.type === 'none') return;
+        if (d.type === 'note' || d.type === 'create' || d.type === 'box') {
             this.editPointerMove(d, x, y);
+            this.updateAutoScroll(x, y);
         } else if (d.type === 'pitch') {
             const above = Math.max(this.minMidi, Math.min(this.maxMidi + 1, this.boundaryMidiAt(y)));
             const { min, max } = this.pitchCrop;
@@ -734,6 +817,7 @@ export class Timeline {
             else this.crop.end = Math.max(t, this.crop.start + 0.1);
             this.onCropChange?.(this.crop.start, this.crop.end);
             this.draw();
+            if (!d.overview) this.updateAutoScroll(x, y);
         } else if (d.type === 'overview') {
             this.moveViewTo(this.overviewXToTime(x));
         } else {
@@ -750,18 +834,87 @@ export class Timeline {
     pointerUp(e) {
         const d = this.drag;
         this.drag = null;
+        this.scroll = null;
         if (d?.type === 'note' || d?.type === 'create') {
             if (d.changed) this.onEdit?.();
             else if (d.type === 'create') {
                 this.select(null);
-                this.onSeek?.(Math.max(0, Math.min(this.duration, d.t0)));
+                this.onSeek?.(Math.max(0, Math.min(this.duration, d.rawT0)));
             }
+            this.draw();
+            return;
+        }
+        if (d?.type === 'box') {
+            this.selectInBox(d);
             return;
         }
         if (d?.type === 'main' && !d.moved) {
             const { x } = this.localPoint(e);
             this.onSeek?.(Math.max(0, Math.min(this.duration, this.xToTime(x))));
         }
+    }
+
+    // ----- scrolling while dragging past an edge -----
+
+    updateAutoScroll(x, y) {
+        let speed = 0;
+        if (x > this.width - EDGE_ZONE) speed = Math.min(2, (x - (this.width - EDGE_ZONE)) / EDGE_ZONE);
+        else if (x < GUTTER + EDGE_ZONE) speed = -Math.min(2, (GUTTER + EDGE_ZONE - x) / EDGE_ZONE);
+        this.scroll = speed ? { speed, x, y } : null;
+        // One loop at a time: autoScrollStep re-schedules itself while scrolling.
+        if (this.scroll && !this.scrollFrame) {
+            this.scrollLast = performance.now();
+            this.scrollFrame = requestAnimationFrame((now) => this.autoScrollStep(now));
+        }
+    }
+
+    autoScrollStep(now) {
+        if (!this.scroll || !this.drag) {
+            this.scrollFrame = null;
+            return;
+        }
+        const seconds = Math.min(0.1, Math.max(0, (now - this.scrollLast) / 1000));
+        this.scrollLast = now;
+        const span = this.view.end - this.view.start;
+        const before = this.view.start;
+        // Speed 1 (pointer at the edge) moves a fifth of the view per second; up to 2 further out.
+        const shift = this.scroll.speed * span * AUTO_SCROLL_RATE * seconds;
+        this.follow = false;
+        this.setView(this.view.start + shift, this.view.end + shift);
+        if (this.view.start !== before) this.dragMove(this.scroll.x, this.scroll.y);
+        this.scrollFrame = this.scroll ? requestAnimationFrame((t) => this.autoScrollStep(t)) : null;
+    }
+
+    // ----- snapping -----
+
+    /** Index of the first onset at or after t. */
+    lowerBound(t, list = this.onsets) {
+        let lo = 0, hi = list.length;
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (list[mid] < t) lo = mid + 1; else hi = mid;
+        }
+        return lo;
+    }
+
+    /** Sorted times to snap to: onsets, plus starts and ends of notes not being dragged. */
+    snapTargets(exclude = new Set()) {
+        const times = [...this.onsets];
+        for (const n of this.notes) if (!exclude.has(n)) times.push(n.start, n.start + n.duration);
+        return Float64Array.from(times).sort();
+    }
+
+    /** The nearest target within SNAP_PX of t: { t, target } (target null if nothing was close). */
+    snap(t, targets, free = false) {
+        if (!this.snapping || free || !targets.length) return { t, target: null };
+        const i = this.lowerBound(t, targets);
+        let best = null;
+        for (const c of [targets[i - 1], targets[i]]) {
+            if (c === undefined) continue;
+            if (best === null || Math.abs(c - t) < Math.abs(best - t)) best = c;
+        }
+        const px = Math.abs(this.timeToX(best) - this.timeToX(t));
+        return px <= SNAP_PX ? { t: best, target: best } : { t, target: null };
     }
 
     // ----- note editing -----
@@ -774,19 +927,43 @@ export class Timeline {
             if (this.hitHandle(x, y) || y < this.rollTop || x < GUTTER) return false;
         }
         try { this.canvas.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
-        if (hit) {
+        const t = this.xToTime(x);
+        if (hit && e.shiftKey) {
+            // Shift+click toggles a note in the selection.
+            const next = new Set(this.selection);
+            if (next.has(hit.note)) next.delete(hit.note); else next.add(hit.note);
+            this.select([...next]);
+            this.drag = { type: 'none' };
+        } else if (hit) {
             const n = hit.note;
-            this.select(n);
+            if (!this.selection.has(n)) this.select(n);
             this.onAudition?.(n.midi);
-            this.drag = { type: 'note', note: n, part: hit.part, startX: x, startRow: this.rowAt(y),
-                orig: { start: n.start, duration: n.duration, midi: n.midi }, changed: false };
+            // Moving drags every selected note; resizing changes only this one.
+            const moving = hit.part === 'move' ? [...this.selection] : [n];
+            this.drag = {
+                type: 'note', note: n, part: hit.part, startX: x, grabT: t, startRow: this.rowAt(y),
+                origs: new Map(moving.map((m) => [m, { start: m.start, duration: m.duration, midi: m.midi }])),
+                targets: this.snapTargets(new Set(moving)), changed: false,
+            };
+        } else if (e.shiftKey) {
+            this.drag = { type: 'box', t0: t, t1: t, y0: y, y1: y };
         } else {
-            this.drag = { type: 'create', startX: x, t0: this.xToTime(x), midi: this.rowAt(y), note: null, changed: false };
+            const targets = this.snapTargets();
+            const start = this.snap(t, targets, e.altKey);
+            this.drag = { type: 'create', startX: x, rawT0: t, t0: start.t, snappedTo: start.target, midi: this.rowAt(y),
+                targets, note: null, changed: false };
         }
         return true;
     }
 
     editPointerMove(d, x, y) {
+        if (d.type === 'box') {
+            d.t1 = this.xToTime(x);
+            d.y1 = y;
+            this.draw();
+            return;
+        }
+        if (d.type !== 'note' && d.type !== 'create') return;
         if (!d.changed && Math.abs(x - d.startX) <= 3 && (d.type === 'create' || this.rowAt(y) === d.startRow)) return;
         if (!d.changed) {
             this.onEditStart?.();
@@ -798,29 +975,62 @@ export class Timeline {
                 this.onAudition?.(d.midi);
             }
         }
-        const t = Math.max(0, Math.min(this.duration, this.xToTime(x)));
+        const raw = Math.max(0, this.xToTime(x));
         if (d.type === 'create') {
-            d.note.start = Math.min(d.t0, t);
-            d.note.duration = Math.max(MIN_NOTE, Math.abs(t - d.t0));
+            const end = this.snap(raw, d.targets, d.free);
+            d.snappedTo = end.target ?? null;
+            d.note.start = Math.min(d.t0, end.t);
+            d.note.duration = Math.max(MIN_NOTE, Math.abs(end.t - d.t0));
+        } else if (d.part === 'move') {
+            const lead = d.origs.get(d.note);
+            const dtRaw = raw - d.grabT;
+            // Snap the grabbed note's start or end, whichever is closer to a target.
+            const byStart = this.snap(lead.start + dtRaw, d.targets, d.free);
+            const byEnd = this.snap(lead.start + lead.duration + dtRaw, d.targets, d.free);
+            let dt = dtRaw;
+            d.snappedTo = null;
+            if (byStart.target !== null && (byEnd.target === null || Math.abs(byStart.t - lead.start - dtRaw) <= Math.abs(byEnd.t - lead.start - lead.duration - dtRaw))) {
+                dt = byStart.t - lead.start;
+                d.snappedTo = byStart.target;
+            } else if (byEnd.target !== null) {
+                dt = byEnd.t - lead.start - lead.duration;
+                d.snappedTo = byEnd.target;
+            }
+            const origs = [...d.origs.values()];
+            dt = Math.max(dt, -Math.min(...origs.map((o) => o.start)));
+            let dm = this.rowAt(y) - d.startRow;
+            dm = Math.max(dm, this.minMidi - Math.min(...origs.map((o) => o.midi)));
+            dm = Math.min(dm, this.maxMidi - Math.max(...origs.map((o) => o.midi)));
+            for (const [n, o] of d.origs) {
+                n.start = o.start + dt;
+                n.midi = o.midi + dm;
+            }
+            if (d.note.midi !== d.lastMidi) {
+                if (d.lastMidi !== undefined) this.onAudition?.(d.note.midi);
+                d.lastMidi = d.note.midi;
+            }
         } else {
             const n = d.note;
-            const { start, duration, midi } = d.orig;
-            const dt = ((x - d.startX) / this.plotWidth) * (this.view.end - this.view.start);
-            if (d.part === 'move') {
-                n.start = Math.max(0, Math.min(this.duration - duration, start + dt));
-                const next = Math.max(this.minMidi, Math.min(this.maxMidi, midi + this.rowAt(y) - d.startRow));
-                if (next !== n.midi) {
-                    n.midi = next;
-                    this.onAudition?.(next);
-                }
-            } else if (d.part === 'start') {
-                n.start = Math.max(0, Math.min(start + duration - MIN_NOTE, start + dt));
+            const { start, duration } = d.origs.get(n);
+            const edge = this.snap(d.part === 'start' ? start + raw - d.grabT : start + duration + raw - d.grabT, d.targets, d.free);
+            d.snappedTo = edge.target;
+            if (d.part === 'start') {
+                n.start = Math.max(0, Math.min(start + duration - MIN_NOTE, edge.t));
                 n.duration = start + duration - n.start;
             } else {
-                n.duration = Math.max(MIN_NOTE, Math.min(this.duration - start, duration + dt));
+                n.duration = Math.max(MIN_NOTE, edge.t - start);
             }
         }
         this.draw();
+    }
+
+    /** Select the notes that overlap the box drawn by a Shift+drag. */
+    selectInBox(d) {
+        const t1 = Math.min(d.t0, d.t1);
+        const t2 = Math.max(d.t0, d.t1);
+        const top = this.rowAt(Math.min(d.y0, d.y1));
+        const bottom = this.rowAt(Math.max(d.y0, d.y1));
+        this.select(this.notes.filter((n) => n.midi <= top && n.midi >= bottom && n.start < t2 && n.start + n.duration > t1));
     }
 
     moveViewTo(t) {

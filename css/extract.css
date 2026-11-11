@@ -152,6 +152,12 @@ progress { width: 200px; }
 }
 
 .time { font-variant-numeric: tabular-nums; min-width: 5.5em; }
+.extra { display: grid; gap: 6px; margin-bottom: 6px; }
+.extra:empty { display: none; }
+.extra-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.extra-row input[type="text"]:first-child { width: 10em; }
+.extra-row button { padding-left: 10px; padding-right: 10px; }
+
 .divider { width: 1px; align-self: stretch; background: var(--border); }
 
 details { margin-top: 10px; }
