@@ -26,13 +26,16 @@ A new page (`extract.html`) that listens to audio, detects the notes, and saves 
 
 Audio is only held in memory while you use the page. It is never saved or uploaded; only the detected notes are saved.
 
+### Tabs 🚧
+A page (`tabs.html`) that turns notes into guitar tablature. Open a `.synesthesia` notes file or a MIDI file, and every note gets a string and fret that keeps your hand still. Hover a note to see everywhere else it could be played and click to move it there; notes you place by hand stay put. Type fret numbers, add and delete notes, play it back, and save.
+
 ## Roadmap
 - [x] Note extractor: listen to a browser tab or open a file, draw or detect notes, play them back, crop, save
 - [x] Note range filter: drag to keep only the notes you want
-- [ ] Tabs view: choose a string and fret for every note, and see and change them (note files and MIDI files)
+- [x] Tabs view: choose a string and fret for every note, and see and change them (note files and MIDI files)
 - [ ] Open strings, and an exact pitch for every position on the fretboard
 - [ ] Play a note file on the fretboard, with upcoming notes shown ahead of time
-- [ ] Better note detection for chords and full mixes, microphone input, MIDI files
+- [ ] Better note detection for chords and full mixes, and microphone input
 
 See [architecture.md](architecture.md) for how it all fits together, and the READMEs in [js/extract](js/extract/README.md), [js/fretboard](js/fretboard/README.md) and [js/tabs](js/tabs/README.md) for each part.
 

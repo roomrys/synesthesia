@@ -281,7 +281,7 @@ Converts between a `NoteSet` and a file.
 | id | Status | Notes |
 |---|---|---|
 | `json` | ✅ | The Synesthesia note file, below. Human-readable, keeps confidence and extractor settings. |
-| `midi` | 📝 | Standard MIDI file, read and write. Lets the fretboard load any MIDI file. |
+| `midi` | ✅ | Standard MIDI files through [@tonejs/midi](https://github.com/Tonejs/Midi) (MIT): every non-percussion track (tracks become `part`), tempo map applied. Keeps notes only, not song details or positions. Used by the tabs page. |
 
 ### Storage 🚧
 Saves and opens note files.
@@ -404,6 +404,6 @@ js/extract/
 4. 🚧 **More sources and extractors:** mic, pitchy, Basic Pitch. YIN finds one
    note at a time, so chords and full mixes need a polyphonic extractor: Basic
    Pitch, or a classical one built on the harmonic-sum layer.
-5. 📝 **MIDI codec:** read and write `.mid`.
+5. ✅ **MIDI codec:** read and write `.mid` (the tabs page opens them).
 6. 📝 **Parts:** separate notes by instrument or guitar part (`Note.part`).
 7. 📝 **Beat grid:** a tempo and beats estimated from the onsets, to snap to.

@@ -9,7 +9,7 @@ Status markers: ✅ built · 🚧 in progress · 📝 planned
 
 ---
 
-## Types 📝
+## Types ✅
 
 ```js
 /** From js/tabs/guitar.js: the MIDI note of each open string, string 1 (high E) first. */
@@ -41,7 +41,7 @@ later passes a different `Guitar` and needs no changes here.
 
 ---
 
-## Interface: Fingering 📝
+## Interface: Fingering ✅
 
 The algorithm that chooses positions is swappable, like the extractor's
 detectors. It is chosen in config and listed in the registry.
@@ -65,8 +65,8 @@ Rules every fingering must follow (checked by contract tests):
 
 | id | Status | Notes |
 |---|---|---|
-| `path` | 📝 | The default: the cheapest path through the possible positions (below). |
-| `lowest` | 📝 | The lowest fret for every note. A simple baseline for tests and comparisons. |
+| `path` | ✅ | The default: the cheapest path through the possible positions (below). |
+| `lowest` | ✅ | The lowest fret for every note. A simple baseline for tests and comparisons. |
 
 ### `path`: the cheapest path through the possible positions
 
@@ -78,10 +78,17 @@ Rules every fingering must follow (checked by contract tests):
    keeps its best few candidates.
 3. **Cost of one candidate:** the stretch across its frets, a small cost for high
    frets, and a small bonus for open strings.
-4. **Cost between neighbouring events:** how far the hand moves (the change in
-   its average fretted position) and how many strings change.
+4. **Cost between neighbouring events:** the hand sits in a position covering
+   `reach` frets (one finger per fret). Notes inside it cost nothing to reach; a
+   note outside makes the hand shift the least it can, which costs a fixed amount
+   plus a little per fret, and less after a rest. Jumping across strings costs a
+   little too. Open strings don't need the hand, so it stays where it was.
+   (An earlier version measured the change in the average fret instead. That let
+   the hand creep up one string a fret at a time almost for free, and the
+   settings barely changed anything.)
 5. **Dynamic programming** (the Viterbi algorithm) finds the sequence of
-   candidates with the lowest total cost. Fixed notes allow only their own
+   candidates with the lowest total cost. (Carrying the hand through open strings
+   makes this a close approximation rather than exact.) Fixed notes allow only their own
    position. This takes time proportional to the number of events times the
    square of the candidates kept per event, which is fast for whole songs.
 
@@ -130,7 +137,7 @@ open MIDI files as well as `.synesthesia` files.
 
 ---
 
-## Tabs editor (`tabs.html`) 📝
+## Tabs editor (`tabs.html`) ✅
 
 - **Tablature:** six lines (string 1 at the top, as in tab notation), with fret
   numbers placed along a time axis. You can scroll, zoom and play back, as on the
@@ -139,15 +146,32 @@ open MIDI files as well as `.synesthesia` files.
   on the other strings. **Click one** to move the note there. The note is then
   fixed: saved with its `string` and `fret`, and kept when the converter runs
   again.
-- **Edit** notes: add, delete, and change pitch and timing.
-- **Re-run the converter** at any time. Only notes you haven't fixed are moved.
+- **Edit** notes, with undo and redo: type a fret number for the selected note
+  (it stays on its string and changes pitch), ↑ and ↓ move it to the next string
+  with the same pitch, F fixes or unfixes it, Delete removes it, dragging it
+  sideways changes its time, and double-clicking a string adds a note.
+- **Fix all / Unfix all** keep every position, or let the fingering choose them
+  all again. If you put a note on a string another note at the same time is
+  using, that note is unfixed and moves aside.
+- **Tune the fingering** with sliders built from its `settings`, remembered per
+  fingering in `localStorage` as a convenience.
+- **Play** the notes with the extractor's player and synth voice, at 25–150% speed.
+- **Crop** as on the note extractor page: drag the yellow handles (in the tab or
+  in the strip at the top that shows the whole tab; dragging past an edge
+  scrolls), or use Start here / End here (`[` `]`), Fit to notes and Reset.
+  **Loop crop** (L) repeats the crop, which is the whole tab until you move it.
+- **Place notes again** at any time. Only notes you haven't fixed are moved; the
+  page also does this after every edit and settings change, so the rest of the
+  tab adapts. The status says how many notes moved.
 - **Open** a `.synesthesia` note file, or a `.mid` file through the `midi` codec.
-- **Save** writes the note file with the positions you fixed (see the note file
-  format in [architecture.md](../../architecture.md)).
+- **Save** writes the notes inside the crop, re-timed to start at 0:00, with the positions you fixed (see the note file
+  format in [architecture.md](../../architecture.md)), and keeps the song details
+  of the file you opened.
+- Notes the guitar can't play are listed in red under the strings.
 
 ---
 
-## Files 📝
+## Files ✅
 
 ```
 js/tabs/
@@ -155,17 +179,20 @@ js/tabs/
   index.js                 runFingering(): validates a TabResult against the rules above
   fingerings/path.js       the default                              (pure)
   fingerings/lowest.js     baseline                                 (pure)
+  tabview.js               canvas tablature: strings, frets, alternatives, editing
   main.js                  the editor page
-tabs.html
-js/extract/codecs/midi.js  📝 .mid files via @tonejs/midi
+tabs.html, css/tabs.css
+js/extract/codecs/midi.js  .mid files via @tonejs/midi
 ```
 
-The registry and config move from `js/extract/` to a shared folder and gain a
-`fingering` kind, so all pages pick implementations the same way.
+Fingerings are listed in the shared registry (`js/extract/registry.js`, kind
+`fingering`) and chosen in `config.js` (`fingering: 'path'`), or per visit with
+`tabs.html?fingering=lowest`. The registry, config, player and voices still live
+in `js/extract/`; they move to a shared folder when the fretboard needs them.
 
 ---
 
-## Tests 📝
+## Tests ✅
 
 - **Contract tests** for every fingering:
   - every placed note has the right pitch;
@@ -175,4 +202,11 @@ The registry and config move from `js/extract/` to a shared folder and gain a
   - a pitch below the guitar's range ends up in `unplayable`;
   - more simultaneous notes than strings puts the extras in `unplayable`.
 - **`path` only:** a one-octave scale stays in one position (no hand jump over 4
-  frets); a repeated note stays on the same string.
+  frets); a repeated note stays on the same string; a melody stays in position
+  through an open string; chords stay within reach; each setting changes the
+  result for a melody that could be played in more than one way.
+- **The page** (`tabs-page.test.js`): notes go in through the MIDI codec, a ghost
+  click moves a note and fixes it, typing a fret changes its pitch, undo restores
+  the converter's choice, chords use different strings, placing again reports
+  that nothing moved, the crop handles set the loop, only the crop is saved, and
+  Reset loops the whole tab.
