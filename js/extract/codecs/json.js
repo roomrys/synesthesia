@@ -17,6 +17,11 @@ function encodeNote(n) {
     };
     if (n.confidence !== undefined) out.confidence = round(n.confidence, 3);
     if (n.part !== undefined) out.part = n.part;
+    // A position chosen by hand on the tabs page (string 1 = highest-pitched).
+    if (n.fixed && Number.isInteger(n.string) && Number.isInteger(n.fret)) {
+        out.string = n.string;
+        out.fret = n.fret;
+    }
     return out;
 }
 
@@ -90,6 +95,7 @@ export default {
             const note = { midi: n.midi, start: n.start, duration: n.duration, velocity: n.velocity ?? 0.8 };
             if (n.confidence !== undefined) note.confidence = n.confidence;
             if (n.part !== undefined) note.part = n.part;
+            if (Number.isInteger(n.string) && Number.isInteger(n.fret)) Object.assign(note, { string: n.string, fret: n.fret, fixed: true });
             return note;
         });
         return {

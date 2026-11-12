@@ -16,6 +16,7 @@ export const registry = {
     },
     codec: {
         json: () => import('./codecs/json.js'),
+        midi: () => import('./codecs/midi.js'),
     },
     storage: {
         folder: () => import('./storage/folder.js'),
