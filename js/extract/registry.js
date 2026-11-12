@@ -22,6 +22,11 @@ export const registry = {
         folder: () => import('./storage/folder.js'),
         download: () => import('./storage/download.js'),
     },
+    // Used by the tabs page: give every note a string and fret.
+    fingering: {
+        path: () => import('../tabs/fingerings/path.js'),
+        lowest: () => import('../tabs/fingerings/lowest.js'),
+    },
 };
 
 /** Config value for "no detector": draw notes by hand. Not an implementation. */
@@ -34,9 +39,10 @@ const REQUIRED = {
     voice: ['id', 'name', 'create'],
     codec: ['id', 'name', 'extension', 'mimeType', 'encode', 'decode'],
     storage: ['id', 'name', 'isSupported', 'save', 'open'],
+    fingering: ['id', 'name', 'defaults', 'assign'],
 };
 
-const CONFIG_KIND = { sources: 'source', extractor: 'extractor', voice: 'voice', codec: 'codec', storage: 'storage' };
+const CONFIG_KIND = { sources: 'source', extractor: 'extractor', voice: 'voice', codec: 'codec', storage: 'storage', fingering: 'fingering' };
 
 /** config.js merged with any query-parameter overrides. */
 export function getConfig(search = globalThis.location?.search ?? '') {

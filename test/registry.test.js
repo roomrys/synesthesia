@@ -18,6 +18,7 @@ test('registry: config ids are all registered', () => {
     assert(registry.voice[config.voice], 'voice');
     assert(registry.codec[config.codec], 'codec');
     for (const id of config.storage) assert(registry.storage[id], `storage ${id}`);
+    assert(registry.fingering[config.fingering], 'fingering');
 });
 
 test('registry: query parameters override config', () => {
