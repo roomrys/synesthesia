@@ -13,7 +13,7 @@ Status markers: ✅ built · 🚧 in progress · 📝 planned
 |---|---|---|
 | `index.html` | ✅ / 🚧 | The fretboard. Highlight every position of the notes you choose, colour-coded by note name. Next: play a note file back on the neck. |
 | `extract.html` | 🚧 | The note extractor. Turn audio into a note file. |
-| `tabs.html` | 🚧 | The tabs editor. Open a note file or MIDI file, see where each note will be played, and change it. |
+| `tabs.html` | ✅ | The tabs editor. Open a note file or MIDI file, see where each note will be played, and change it. |
 
 All are static pages with no build step, hosted on GitHub Pages.
 
@@ -44,7 +44,7 @@ All are static pages with no build step, hosted on GitHub Pages.
 |---|---|---|
 | Note extractor | 🚧 | [js/extract/README.md](js/extract/README.md): sources, detectors, the timeline editor, playback, saving. |
 | Fretboard | ✅ / 📝 | [js/fretboard/README.md](js/fretboard/README.md): the neck today, and the goals for positions, open strings and playback. |
-| Tab converter and tabs editor | 🚧 | [js/tabs/README.md](js/tabs/README.md): choosing a string and fret for every note, and changing them by hand. |
+| Tab converter and tabs editor | ✅ | [js/tabs/README.md](js/tabs/README.md): choosing a string and fret for every note, and changing them by hand. |
 
 The **note file** is the contract between them: the extractor writes it, and the
 converter, the fretboard and the tabs editor read it.
@@ -181,14 +181,14 @@ python3 -m http.server 8000
 Built:
 
 - 🚧 **Note extractor:** see [js/extract/README.md](js/extract/README.md#roadmap).
+- ✅ **Tabs view:** a string and fret for every note (the tab converter), and
+  `tabs.html` to see and change them, play, crop, loop and save. Opens note
+  files and MIDI files. See [js/tabs/README.md](js/tabs/README.md).
 
 Next:
 
-1. 🚧 **Tabs view:** a string and fret for every note (the tab converter), and
-   `tabs.html` to see and change them. Opens note files and MIDI files. See
-   [js/tabs/README.md](js/tabs/README.md).
-2. 📝 **Fretboard positions and open strings:** open-ended for now; see
+1. 📝 **Fretboard positions and open strings:** open-ended for now; see
    [js/fretboard/README.md](js/fretboard/README.md).
-3. 📝 **Fretboard playback:** play a note file on the neck, with upcoming notes
+2. 📝 **Fretboard playback:** play a note file on the neck, with upcoming notes
    shown ahead of time. Open-ended for now.
-4. 📝 **Tunings and capo:** a property of the fretboard, passed to the converter.
+3. 📝 **Tunings and capo:** a property of the fretboard, passed to the converter.

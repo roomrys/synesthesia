@@ -26,8 +26,14 @@ A new page (`extract.html`) that listens to audio, detects the notes, and saves 
 
 Audio is only held in memory while you use the page. It is never saved or uploaded; only the detected notes are saved.
 
-### Tabs 🚧
-A page (`tabs.html`) that turns notes into guitar tablature. Open a `.synesthesia` notes file or a MIDI file, and every note gets a string and fret that keeps your hand still. Hover a note to see everywhere else it could be played and click to move it there; notes you place by hand stay put. Type fret numbers, add and delete notes, play it back, and save.
+### Tabs ✅
+A page (`tabs.html`) that turns notes into guitar tablature. Open a `.synesthesia` notes file or a MIDI file, and every note gets a string and fret that keeps your hand still.
+
+- Hover a note to see everywhere else it could be played, and click to move it there; notes you place by hand stay put
+- Type fret numbers, move notes between strings, drag them in time, add and delete them, undo
+- Tune the fingering (hand reach, avoiding moves, low frets, open strings, string jumps) and see how many notes moved
+- Play it back, slowed down if you like; crop it with the same handles as the note extractor and loop the crop
+- Save the crop as a `.synesthesia` file, with the positions you chose
 
 ## Roadmap
 - [x] Note extractor: listen to a browser tab or open a file, draw or detect notes, play them back, crop, save
@@ -49,4 +55,4 @@ Runs the browser tests in headless Chrome. You can also serve the repo and open 
 ```sh
 python3 -m http.server 8000
 ```
-Then open http://localhost:8000 (fretboard) or http://localhost:8000/extract.html (note extractor).
+Then open http://localhost:8000 (fretboard), http://localhost:8000/extract.html (note extractor) or http://localhost:8000/tabs.html (tabs).

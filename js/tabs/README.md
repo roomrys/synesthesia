@@ -210,3 +210,14 @@ in `js/extract/`; they move to a shared folder when the fretboard needs them.
   the converter's choice, chords use different strings, placing again reports
   that nothing moved, the crop handles set the loop, only the crop is saved, and
   Reset loops the whole tab.
+
+## Later 📝
+
+Open-ended for now:
+
+- Tunings and capo, as properties of the fretboard, passed to the converter.
+- Showing the tab on the fretboard as it plays (see
+  [js/fretboard/README.md](../fretboard/README.md)).
+- More fingerings, e.g. ones that know about techniques (slides, hammer-ons) or
+  learn from tabs people wrote.
+- Choosing which part (track) of a multi-track MIDI file to show.
