@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Synesthesia · Tabs</title>
+    <link rel="stylesheet" href="css/extract.css">
+    <link rel="stylesheet" href="css/tabs.css">
+    <link rel="icon" type="image/png" href="images/favicon.png">
+
+    <script defer src="https://cloud.umami.is/script.js"
+        data-website-id="bfe63826-fbe6-4559-9060-8c4404b1e44d"></script>
+</head>
+
+<body>
+    <header>
+        <a href="index.html" class="back">← Fretboard</a>
+        <h1>Tabs</h1>
+        <span class="tag">experimental</span>
+        <a href="extract.html" class="back">Note extractor →</a>
+    </header>
+
+    <main>
+        <section class="panel">
+            <h2><span class="step">1</span> Notes</h2>
+            <div class="row">
+                <button id="openButton" class="primary">Open notes or MIDI file…</button>
+                <span id="fileInfo" class="hint"></span>
+            </div>
+            <div class="row">
+                <label>Fingering <select id="fingeringSelect"></select></label>
+                <button id="placeButton" disabled title="Choose positions again for every note you haven't placed by hand">Place notes again</button>
+                <button id="fixAllButton" disabled title="Keep every note where it is now">Fix all</button>
+                <button id="unfixAllButton" disabled title="Let the fingering choose every position again">Unfix all</button>
+            </div>
+            <p class="hint" id="fingeringHint"></p>
+            <p class="status" id="status" role="status"></p>
+            <details id="settingsPanel" hidden>
+                <summary>Tune the fingering</summary>
+                <div class="settings" id="settingsGrid"></div>
+                <div class="row"><button id="resetSettingsButton">Reset to defaults</button></div>
+            </details>
+        </section>
+
+        <section class="panel">
+            <h2><span class="step">2</span> Tab and crop</h2>
+            <canvas id="tab"></canvas>
+            <div class="row transport">
+                <button id="playButton" disabled title="Space">▶ Play</button>
+                <span class="time" id="timeDisplay">0:00.0</span>
+                <label class="check" title="L"><input type="checkbox" id="loopToggle"> Loop crop</label>
+                <label title="- and =">Speed <input type="range" id="speed" min="0.25" max="1.5" step="0.05" value="1">
+                    <output id="speedDisplay" class="time">100%</output></label>
+                <label>Volume <input type="range" id="volume" min="0" max="1" step="0.01" value="0.8"></label>
+                <label class="check"><input type="checkbox" id="followPlayhead" checked> Follow</label>
+                <button id="undoButton" disabled title="Cmd/Ctrl+Z">Undo</button>
+                <button id="redoButton" disabled title="Shift+Cmd/Ctrl+Z">Redo</button>
+            </div>
+            <div class="row">
+                <span>Crop <span class="time" id="cropDisplay">–</span></span>
+                <button id="cropStartButton" disabled title="[">Start here</button>
+                <button id="cropEndButton" disabled title="]">End here</button>
+                <button id="cropFitButton" disabled title="Crop to where the notes start and end">Fit to notes</button>
+                <button id="cropResetButton" disabled title="The whole tab">Reset</button>
+            </div>
+            <p class="hint">Each number is a fret, on its string (the top line is the high e string). Hover a note to
+                see everywhere else it could be played, and click one to move it there. Notes you place by hand get a
+                yellow mark and stay put when the rest are placed again. With a note selected: type a fret number,
+                <kbd>↑</kbd> <kbd>↓</kbd> move it to the next string with the same pitch, <kbd>F</kbd> fixes or
+                unfixes it, <kbd>Delete</kbd> removes it. Drag a note sideways to change its time; double-click a
+                string to add a note. Scroll to zoom, drag to pan, click to jump; the strip at the top is the whole tab.
+                <kbd>Space</kbd> plays. Drag the yellow handles to crop: <b>Loop crop</b> (or <kbd>L</kbd>) repeats
+                the crop, and only the crop is saved. <kbd>[</kbd> and <kbd>]</kbd> set the crop at the playhead.</p>
+        </section>
+
+        <section class="panel">
+            <h2><span class="step">3</span> Save</h2>
+            <div class="row">
+                <label>Name <input type="text" id="titleInput" placeholder="my-song" spellcheck="false"></label>
+                <button id="saveButton" class="primary" disabled>Save notes</button>
+            </div>
+            <p class="hint">Saved as a <code>.synesthesia</code> file. Only the notes inside the crop are saved, starting from 0:00;
+                positions you placed by hand are kept.</p>
+            <p class="status" id="saveStatus" role="status"></p>
+        </section>
+    </main>
+
+    <script type="module" src="js/tabs/main.js"></script>
+</body>
+
+</html>

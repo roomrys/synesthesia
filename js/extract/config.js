@@ -14,4 +14,5 @@ export const config = {
     voice: 'tone',
     codec: 'json',
     storage: ['folder', 'download'],
+    fingering: 'path',   // tabs page: how notes get a string and fret
 };

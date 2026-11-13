@@ -27,6 +27,7 @@ for (const id of Object.keys(registry.codec)) {
         });
         assertEqual(meta.title, 'test song');
         assertClose(meta.duration, 2, 0.001);
+        if (codec.details === false) return;   // e.g. MIDI keeps notes only
         const withSong = codec.encode(noteSet, {
             title: 't', duration: 2, song: { title: 'Their Song', artist: 'Some Band' },
             source: { type: 'file', label: 'band - song.mp3', start: 12.3456, length: 200 },
@@ -44,6 +45,17 @@ for (const id of Object.keys(registry.codec)) {
         await assertRejects((async () => codec.decode(new TextEncoder().encode('{"hello": 1}').buffer))());
     });
 }
+
+test('codec json: keeps hand-fixed positions only', async () => {
+    const codec = await loadImpl('codec', 'json');
+    const notes = [
+        { midi: 64, start: 0, duration: 0.5, velocity: 0.8, string: 2, fret: 5, fixed: true },
+        { midi: 67, start: 0.5, duration: 0.5, velocity: 0.8, string: 1, fret: 3, fixed: false },
+    ];
+    const back = codec.decode(await codec.encode({ ...noteSet, notes }, { title: 't', duration: 1 }).arrayBuffer()).noteSet.notes;
+    assertEqual(`${back[0].string}/${back[0].fret}/${back[0].fixed}`, '2/5/true', 'fixed note:');
+    assertEqual(back[1].string, undefined, 'converter-placed position should not be saved:');
+});
 
 test('codec json: is readable, one note per line', async () => {
     const codec = await loadImpl('codec', 'json');
