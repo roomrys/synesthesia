@@ -10,6 +10,7 @@ export const registry = {
     },
     extractor: {
         yin: () => import('./extractors/yin.js'),
+        arrange: () => import('./extractors/arrange.js'),
     },
     voice: {
         tone: () => import('./voices/tone.js'),

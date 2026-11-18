@@ -83,9 +83,11 @@ Picker ─────────────► Candidate[]
                           NoteSet  (notes with part, layer, technique)
 ```
 
-The whole pipeline is one registered extractor, **`arrange`**. Its options name
-the implementation used at each step and that step's own options, so a note
-file records exactly how it was made:
+The whole pipeline is one registered extractor, **`arrange`** ✅
+(`js/extract/extractors/arrange.js`). Its options name the implementation used
+at each step, and hold each step's own options under keys prefixed with the
+step's name. They're flat, so they fit the page's sliders and the note file
+records exactly how the notes were made:
 
 ```js
 {
@@ -97,15 +99,17 @@ file records exactly how it was made:
   layers: 'none',
   objective: 'energy',
   multiplexer: 'greedy',
-  density: 4,                 // notes per second
-  stages: { projector: { sparsity: 0.1 }, ... },   // each step's own options
+  'projector.sparsity': 0.02,     // each step's own options, prefixed
+  'picker.floorDb': -50,
+  // …
 }
 ```
 
-Its `settings` (sliders on the page) are gathered from the chosen
-implementations' `settings`, with keys prefixed by step (`projector.sparsity`).
-Query parameters can pick implementations per visit, for example
-`extract.html?extractor=arrange&multiplexer=viterbi`.
+Its `settings` (sliders on the page) are the default implementations'
+`settings`, with keys prefixed the same way. An ensemble entry is
+`{ instrument, profile?, label?, options? }`. `profile` is `'default'` (the
+instrument's own) or a saved `TimbreProfile`. Members get unique labels
+(`guitar`, `guitar 2`).
 
 `runPipeline(clip, options, { trace: true })` also returns a **trace**: the
 output of every step (spectrogram, dictionary, activations, residual,
@@ -120,11 +124,20 @@ The stages map onto implementations. **Stage 1 alone** is
 explain. Stages 2 and 3 are better implementations of the same steps, not a
 different pipeline.
 
+**Stage 1 is built** ✅. On synthetic audio it finds a C major triad, all six
+notes of an E minor chord strummed on six strings, melodies with their timing,
+and repeated notes. A noise burst over a held note comes out as `mute`, `slap`
+and `tap`, not as new notes. Percussive choices stay in the trace and aren't
+saved yet (they need the note format change below). A 30-second clip takes
+about 2.5 s. Known weakness: a faint octave ghost (G5 over G4) can get through
+at about a tenth of the main note's weight.
+
 ---
 
-## Types 📝
+## Types ✅
 
 Defined in `js/extract/arrange/types.js`, alongside the extractor's own types.
+The full list there also has `Axis`, `Member`, `Step` and `Choice`.
 
 ```js
 /** A time-frequency picture of the clip. */
@@ -160,9 +173,10 @@ Activations = { hopSeconds, values: Float32Array[] }   // values[column][frame] 
 
 /** A possible note: one dictionary column switching on at one time. */
 Candidate = {
-  member: number, sound: Sound,
+  column: number, member: number, sound: Sound,
   start: number, duration: number,   // seconds
-  strength: number,                  // from the activations
+  strength: number,                  // how much the activation rose
+  peakFrame: number,                 // where the activation peaks
 }
 
 /** A layer of the song (stage 2). Not an instrument: see Note.part. */
@@ -176,21 +190,27 @@ Layer = {
 
 ---
 
-## Interfaces 📝
+## Interfaces ✅
 
 Each one is an ES module whose default export has `id`, `name`,
 `description`, `defaults` and optional `settings`, as extractors do. They're
-listed in `js/extract/arrange/registry.js`, with the same lazy `load` and
-member checks as `js/extract/registry.js`. Every method takes
-`{ options, onProgress?, signal? }` where it can be slow.
+listed in `js/extract/arrange/registry.js`, and `loadStep(kind, id)` loads one
+lazily and checks its members, as `loadImpl` does in `js/extract/registry.js`.
+Every method takes `{ options, onProgress?, signal? }` where it can be slow.
+In the tables, ✅ is built and the rest are 📝 planned.
 
 ### Representation
 Turns audio into a spectrogram.
 
 ```js
 analyse(clip: AudioClip, { options }): Promise<Spectrogram>
-resynthesize?(clip, mask: Float32Array[]): Promise<Float32Array>   // for listening on the debug page
+kernel(hz, { options }): Float32Array      // how a steady unit sine at `hz` looks
+resynthesize?(clip, mask: Float32Array[]): Promise<Float32Array>   // 📝 for listening on the debug page
 ```
+
+`kernel` is what timbres draw partials with, so templates smear exactly as the
+analysis does. `stft-log` computes it by analysing a synthetic sine, then
+caches it.
 
 `resynthesize` applies a soft mask (values 0..1, one per bin and frame, such as
 the reconstruction divided by the original) to the clip's own transform. It
@@ -199,7 +219,7 @@ page plays the guitar-space version, the residual, or one layer.
 
 | id | Notes |
 |---|---|
-| `stft-log` | Today's analysis in `spectrum.js` (4096-point FFT at 16 kHz), mapped to a log-frequency axis. |
+| `stft-log` ✅ | The same analysis as `spectrum.js` (4096-point FFT at 16 kHz every 10 ms), mapped to a log-frequency axis with three bins per semitone from C1 up to 8 kHz. Magnitudes are absolute (a full-scale sine reads as 1), not normalised to the clip's peak, so quiet audio stays quiet. |
 | `multires` | Long windows for low notes, short ones for high notes, so low notes don't smear (see README). |
 | `cqt` | Constant-Q transform. |
 
@@ -207,34 +227,38 @@ page plays the guitar-space version, the residual, or one layer.
 Finds where things happen.
 
 ```js
-analyse(spectrogram, { options }): { onsets: number[], beats: number[], bars: number[] }
+analyse(clip, spectrogram, { options }): Promise<{ onsets: number[], beats: number[], bars: number[] }>
 ```
+
+It gets the clip as well as the spectrogram, because onsets need a shorter
+window than the spectrogram's.
 
 | id | Notes |
 |---|---|
-| `flux` | The spectral-flux onsets already in `spectrum.js`, plus tempo from the autocorrelation of onset strength, then beats and bars. |
+| `flux` ✅ | The spectral-flux onsets from `spectrum.js` (`spectralFlux`, shared with the timeline's onset ticks), on the spectrogram's frame times. 📝 Next: tempo from the autocorrelation of onset strength, then beats and bars. |
 
 ### Instrument
 What an instrument can play. It knows nothing about how it sounds.
 
 ```js
 {
-  sounds(): Sound[],                       // every pitch and technique it can make
+  sounds(options): Sound[],                       // every pitch and technique it can make
   playability: {
-    states(sounds: Sound[]): State[],      // ways to play these at once; [] = impossible
-    cost(state): number,                   // how awkward that way is
-    transition(prev, next, gapSeconds): number,   // cost of moving between them
+    states(sounds: Sound[], options): State[],    // ways to play these at once, cheapest first; [] = impossible
+    cost(state, options): number,                 // how awkward that way is
+    transition(prev, next, gapSeconds, options): number,   // cost of moving between them
   },
-  defaultProfile: string,
+  defaultProfile: TimbreProfile,
 }
 ```
 
-`State` is up to the instrument. For a guitar it is the strings and frets used
-and where the hand sits.
+`options` are the member's: the instrument's `defaults` plus the ensemble
+entry's `options`. `State` is up to the instrument. For a guitar it is the
+strings and frets used.
 
 | id | Notes |
 |---|---|
-| `guitar` | Built on `js/tabs/guitar.js` (`Guitar`, `positionsFor`). `sounds()` is every pitch from the tuning plus `mute`, `slap` and `tap`. The playability costs are the `path` fingering's ([js/tabs](../tabs/README.md)), moved into shared functions that both use. Tuning and capo come from the `Guitar` it's given. |
+| `guitar` ✅ | Built on `js/tabs/guitar.js` (`Guitar`, `positionsFor`). `sounds()` is every pitch from the tuning plus `mute`, `slap` and `tap`. Playability uses the `path` fingering's candidates and costs, moved into `js/tabs/hand.js` so both use them. Its options include the `path` weights (reach and so on) and the `guitar` (tuning and frets). Percussive sounds don't take a string yet. |
 
 Other instruments (bass, piano, ukulele) are new modules with their own
 sounds and playability.
@@ -244,13 +268,13 @@ How an instrument sounds: renders a template for a sound from a profile, and
 can fit a profile to a recording.
 
 ```js
-render(member: Member, sound: Sound, hz: Float32Array): Float32Array
-fit?(spectrogram, member, activations?, { options }): TimbreProfile
+render(member: Member, sound: Sound, axis: Axis): Float32Array   // axis = { hz, kernel }
+fit?(spectrogram, member, activations?, { options }): TimbreProfile   // 📝
 ```
 
 | id | Notes |
 |---|---|
-| `harmonic` | A harmonic comb: partial k at k·f0·√(1 + Bk²) (string inharmonicity), partial strengths falling with a brightness slope, optional body resonances, optional per-string differences (the same pitch sounds darker on a lower string). Percussive sounds are fixed shapes: `mute` short and broadband, `slap` a low thump with string noise, `tap` a body resonance. |
+| `harmonic` ✅ | A harmonic comb: partial k at k·f0·√(1 + Bk²) (string inharmonicity), partial strengths falling with a brightness slope, optional body resonances, optional per-string differences (the same pitch sounds darker on a lower string). Percussive sounds are fixed shapes: `mute` short and broadband, `slap` a low thump with string noise, `tap` a body resonance. |
 
 **Tuning to a specific instrument:** `fit()` adjusts the profile's numbers to
 match a recording, with no annotations. It alternates two steps: project with
@@ -266,9 +290,10 @@ The recording can be:
 Partials stay at their harmonic positions in every case. Only their strengths
 and the shape parameters change.
 
-### Building the dictionary
-Not swappable. `buildDictionary(ensemble, hz)` renders every `sound()` of every
-member with its timbre and labels each column. Several members simply add
+### Building the dictionary ✅
+Not swappable. `buildDictionary(ensemble, axis)` renders every `sound()` of
+every member with its timbre, scales each template to unit length, and labels
+each column. Several members simply add
 their columns. The projector then decides which member each part of the sound
 belongs to by timbre.
 
@@ -287,7 +312,7 @@ aren't orthogonal, and projecting gives negative amounts of notes.
 
 | id | Notes |
 |---|---|
-| `nnls` | Non-negative least squares per frame, with a sparsity penalty. |
+| `nnls` ✅ | Non-negative least squares per frame, with a sparsity penalty that scales with the frame's loudness. Solved by coordinate descent on WᵀW, starting from the previous frame's answer. |
 | `nmf-fixed` | Multiplicative updates with the dictionary fixed and a β-divergence (KL or Itakura–Saito) that suits audio better than squared error. |
 
 Drums are kept, not removed. They project onto the instrument's percussive
@@ -299,25 +324,25 @@ scatter of wrong pitches. That would add noise and lose the groove.
 Turns activations into candidate notes.
 
 ```js
-pick(activations, dictionary, { rhythm, spectrogram, options }): Candidate[]
+pick(activations, dictionary, { rhythm, spectrogram, ensemble, options }): Candidate[]
 ```
 
 | id | Notes |
 |---|---|
-| `onset-rise` | At each onset, every column whose activation rose is a candidate. It ends when its activation decays into the floor, or at the next onset of the same column. |
+| `onset-rise` ✅ | At each onset (and the start of the clip, if something is already sounding), every column whose activation rose is a candidate, with these rules. **Floor:** its peak is above an absolute floor (−50 dB), so silence and faint noise give nothing. **Relative rise:** it rose at least a tenth as much as the strongest rise there. **Re-strike:** a sound that was already ringing must rise by 30% of its peak, so beating between partials, or a drum hit over a held note, doesn't replay it. **Neighbours:** a pitch is dropped when an adjacent semitone is twice as strong. Where the window only partly covers a tone, the spectrum broadens and the fit explains the edge with neighbouring semitones. **Next onset:** a rise still climbing where the next onset cuts the look-ahead belongs to that onset. A candidate ends when its activation falls below 30% of its peak, or when the same column starts again. |
 
 ### LayerFinder (stage 2)
 Splits the candidates into layers, and can clean up the activations using
 repetition.
 
 ```js
-find(candidates, { rhythm, activations, options }): Layer[]
+find(candidates, { rhythm, activations, ensemble, options }): Layer[]
 denoise?(activations, layers, { rhythm }): Activations     // then pick again
 ```
 
 | id | Notes |
 |---|---|
-| `none` | One layer per ensemble member. Makes stage 1 work on its own. |
+| `none` ✅ | One layer per ensemble member. Makes stage 1 work on its own. |
 | `bar-nmf` | Cut the activations into bars using `rhythm.bars`, flatten each bar into a row (sound × sub-beat), and factor the bar matrix with NMF. Components are the repeating layers, and what doesn't factor well becomes one-off layers. Percussive columns form the rhythm layer. `denoise` averages bars that share a layer, so noise cancels and real notes get stronger. |
 | `bar-svd` | The same with SVD, for exploring (its parts can be negative). |
 | `nmfd` | Convolutive NMF: templates that are short note sequences, with the times when each one fires. |
@@ -333,13 +358,13 @@ What a choice of notes is worth. Split into a one-off preparation and a
 per-step score, so both greedy and dynamic-programming multiplexers can use it.
 
 ```js
-prepare(candidates, layers, { activations, options }): Context   // e.g. distinctiveness weights
-score(chosen: Candidate[], step: { start, end }, context): number
+prepare(candidates, layers, { spectrogram, activations, dictionary, options }): Context   // e.g. distinctiveness weights
+score(chosen: Candidate[], step: Step, context): number    // Step = { start, end, candidates }
 ```
 
 | id | Notes |
 |---|---|
-| `energy` | How much of the spectrogram the chosen candidates explain. The baseline, and what stage 1's greedy cap uses. |
+| `energy` ✅ | How much of the spectrogram the chosen candidates explain, at the frame where the step's strongest candidate peaks. That way a short hit counts as much as a chord that takes a moment to fill the window. Sounds that aren't candidates at the step (still ringing from earlier) are taken out first, so they don't inflate the score of notes that share their partials. The baseline, and what stage 1's greedy cap uses. |
 | `fair-distinct` | The objective above: leave-one-out distinctiveness weights within layers, then a concave sum over layers. Settings: the concave function's strength, and an optional bonus for a layer (such as the melody). |
 
 ### Multiplexer (stage 3)
@@ -358,7 +383,7 @@ moment has a `state` from `instrument.playability.states()`.
 
 | id | Notes |
 |---|---|
-| `greedy` | At each onset, add candidates one at a time by score gained, up to the budget, keeping only playable combinations. Stage 1's default. |
+| `greedy` ✅ | At each onset, add candidates one at a time by score gained, keeping only playable combinations. Stop at `maxPerOnset` (6) or when the next would add less than `minGain` (a tenth) of what the first added. Stage 1's default. |
 | `viterbi` | Dynamic programming over the whole song. Each step's candidates are playable subsets, scored by `objective.score` minus a switching cost (so the arrangement doesn't flicker between layers) minus playability `cost` and `transition`. Exact for a per-step score. |
 | `beam` | Beam search, for objectives that don't split into steps. |
 
@@ -436,24 +461,33 @@ Readers already ignore unknown fields, so none of this needs a new version.
 
 ---
 
-## Files 📝
+## Files
+
+Built ✅ (planned modules in brackets):
 
 ```
 js/extract/extractors/arrange.js     the `arrange` extractor: runs the pipeline
 js/extract/arrange/
   types.js                           the types above (JSDoc)
-  registry.js                        every implementation, lazily loaded
-  pipeline.js                        wires the steps together, rounds of denoise (pure)
+  registry.js                        every implementation, lazily loaded; loadStep
+  pipeline.js                        runPipeline, stepOptions, resolveEnsemble (pure)
   dictionary.js                      buildDictionary                     (pure)
-  representations/                   stft-log.js, …
+  representations/                   stft-log.js [multires.js, cqt.js]
   rhythm/                            flux.js
   instruments/                       guitar.js
   timbres/                           harmonic.js
-  projectors/                        nnls.js, nmf-fixed.js
+  projectors/                        nnls.js [nmf-fixed.js]
   pickers/                           onset-rise.js
-  layers/                            none.js, bar-nmf.js, …
-  objectives/                        energy.js, fair-distinct.js
-  multiplexers/                      greedy.js, viterbi.js, …
+  layers/                            none.js [bar-nmf.js, …]
+  objectives/                        energy.js [fair-distinct.js]
+  multiplexers/                      greedy.js [viterbi.js, beam.js]
+js/tabs/hand.js                      guitar hand costs, shared with the `path` fingering
+test/arrange.test.js                 contract suites for every step, and the pipeline
+```
+
+Planned 📝:
+
+```
 debug/arrange.html                   the debug page
 js/debug/
   arrange.js                         its wiring and controls
@@ -467,32 +501,40 @@ whole songs are slow.
 
 ---
 
-## Tests 📝
+## Tests ✅
 
 One contract suite per interface, run against every registered
-implementation, as for the extractor's interfaces:
+implementation, as for the extractor's interfaces (`test/arrange.test.js`).
+Built so far, except where marked 📝:
 
-- **Representation:** a 440 Hz tone peaks at the bin nearest 440 Hz.
-- **Instrument:** every state uses only sounds it lists. For the guitar, notes
-  at the same time are on different strings, and nothing outside the tuning's
-  range is playable.
-- **Timbre:** templates are non-negative and peak at the fundamental. `fit()`
-  recovers the parameters of a spectrogram rendered from a known profile.
+- **Representation:** a 440 Hz tone peaks at the bin nearest 440 Hz, at about
+  its amplitude, and so does the kernel.
+- **Rhythm:** onsets at note starts.
+- **Instrument:** every sound can be played alone, with finite costs. For the
+  guitar, a six-note E minor chord is on six different strings, and seven notes
+  or a note below the low E can't be played.
+- **Timbre:** templates are non-negative and peak at the fundamental (within a
+  third of a semitone, since low notes smear). 📝 `fit()` recovers the
+  parameters of a spectrogram rendered from a known profile.
+- **Dictionary:** one unit-length, labelled column per sound.
 - **Projector:** a mix of two known templates comes back as those two
-  activations. Activations are never negative. A noise burst lands on a
-  percussive column, not on pitches.
-- **Picker:** candidates start at onsets.
-- **LayerFinder:** a synthetic song with a repeated bar and one different bar
-  gives a repeating layer and a one-off layer.
-- **Objective:** spreading a budget across layers scores higher than spending
-  it on one. In a synthetic pair of riffs that differ only in their last note,
+  activations. Activations are never negative. A noise burst lands on the
+  percussive columns, not on pitches.
+- **Picker:** a candidate starts at its onset and ends when the sound fades.
+- **LayerFinder:** every candidate belongs to a layer. 📝 A synthetic song with a
+  repeated bar and one different bar gives a repeating layer and a one-off
+  layer.
+- **Objective:** nothing chosen scores 0, and the real note explains most of
+  its frame. 📝 Spreading a budget across layers scores higher than spending it
+  on one. In a synthetic pair of riffs that differ only in their last note,
   that note gets the highest weight.
-- **Multiplexer:** every choice is playable and within the budget. `viterbi`
-  never scores below `greedy` on the same input.
+- **Multiplexer:** every choice is playable together. 📝 Within the budget, and
+  `viterbi` never scores below `greedy` on the same input.
 - **End to end:** `arrange` passes the extractor contract tests (440 Hz → A4,
-  low E without an octave error, and so on), and finds the notes of a
-  synthetic chord.
-- **Debug page:** like `page.test.js`, load it in an iframe, open a generated
+  low E without an octave error, and so on). It finds a C major triad and a
+  six-string E minor chord, and a drum hit over a held note is percussive, not
+  a new note. The trace has every step.
+- 📝 **Debug page:** like `page.test.js`, load it in an iframe, open a generated
   WAV file, and check that the trace has every step and every view draws
   without errors. `resynthesize` with a mask of all ones gives back the
   original samples.
@@ -516,7 +558,7 @@ implementation, as for the extractor's interfaces:
 
 ## Order of work
 
-1. **The skeleton:** types, the registry, the pipeline, `buildDictionary`, and
+1. ✅ **The skeleton:** types, the registry, the pipeline, `buildDictionary`, and
    the contract test suites. Implementations: `stft-log`, `flux` (onsets only),
    `guitar` (sharing the `path` costs with js/tabs), `harmonic`, `nnls`,
    `onset-rise`, `none`, `energy`, `greedy`. That is stage 1, shipped as

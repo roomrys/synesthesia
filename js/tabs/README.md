@@ -180,6 +180,8 @@ open MIDI files as well as `.synesthesia` files.
 js/tabs/
   guitar.js                Guitar, STANDARD, midiAt, positionsFor   (pure)
   index.js                 runFingering(): validates a TabResult against the rules above
+  hand.js                  candidates and hand costs for `path`, also used by the
+                           arrangement extractor's guitar          (pure)
   fingerings/path.js       the default                              (pure)
   fingerings/lowest.js     baseline                                 (pure)
   tabview.js               canvas tablature: strings, frets, alternatives, editing
