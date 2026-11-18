@@ -168,6 +168,9 @@ open MIDI files as well as `.synesthesia` files.
   format in [architecture.md](../../architecture.md)), and keeps the song details
   of the file you opened.
 - Notes the guitar can't play are listed in red under the strings.
+- 📝 **Percussive notes** (`technique`: mute, slap, tap) from the arrangement
+  extractor ([js/extract/arrangement.md](../extract/arrangement.md)): shown as
+  an `x` on a string chosen by the fingering, and played as a short noise burst.
 
 ---
 

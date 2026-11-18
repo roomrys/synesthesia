@@ -154,7 +154,9 @@ Note = {
   duration: number,        // seconds
   velocity: number,        // 0..1, relative loudness
   confidence?: number,     // 0..1, extractor-specific
-  part?: string,           // 📝 future: instrument / guitar part
+  part?: string,           // instrument or track (the MIDI codec sets it)
+  technique?: string,      // 📝 'mute' | 'slap' | 'tap': a percussive hit, with midi: null
+  layer?: string,          // 📝 the arrangement layer it came from (arrangement.md)
 }
 
 /** Output of an extractor. */
@@ -403,7 +405,10 @@ js/extract/
    with snapping, groups and overtone guides, and no detector by default.
 4. 🚧 **More sources and extractors:** mic, pitchy, Basic Pitch. YIN finds one
    note at a time, so chords and full mixes need a polyphonic extractor: Basic
-   Pitch, or a classical one built on the harmonic-sum layer.
+   Pitch, or a classical one built on the harmonic-sum layer. The plan for a
+   classical one, `arrange`, is in [arrangement.md](arrangement.md). It makes
+   a playable arrangement of the whole song, with every step swappable
+   (instrument, timbre, projection, layers, multiplexer).
 5. ✅ **MIDI codec:** read and write `.mid` (the tabs page opens them).
 6. 📝 **Parts:** separate notes by instrument or guitar part (`Note.part`).
 7. 📝 **Beat grid:** a tempo and beats estimated from the onsets, to snap to.
