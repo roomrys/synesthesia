@@ -1,7 +1,7 @@
 // End-to-end: load debug/arrange.html in an iframe, run the pipeline on test
 // clips and a generated WAV file, and check the views draw and steps are reused.
 
-import { test, assert, assertEqual } from './runner.js';
+import { test, assert, assertEqual, assertClose } from './runner.js';
 import { sequence, wavBytes } from './signals.js';
 
 function waitFor(check, timeoutMs = 20000, what = 'condition') {
@@ -133,7 +133,7 @@ test('debug page: crops and a draggable playhead, as on the note extractor', asy
     }
 });
 
-test('debug page: plays guitar space and the residual on their own', async () => {
+test('debug page: guitar space and the residual have volume sliders, mixed with the song', async () => {
     const { frame, doc } = await loadPage();
     const win = frame.contentWindow;
     try {
@@ -142,25 +142,27 @@ test('debug page: plays guitar space and the residual on their own', async () =>
         const { state } = win.debugPage;
         doc.getElementById('playButton').click();
         await waitFor(() => state.player?.playing, 15000, 'playback');
-        const hear = doc.getElementById('hearSelect');
-        const energy = (clip) => clip.samples.reduce((s, v) => s + v * v, 0) / clip.samples.length;
+        assertEqual(state.player.stems.length, 0, 'no stems while their sliders are at 0:');
 
-        hear.value = 'guitar';
-        hear.dispatchEvent(new Event('change'));
-        await waitFor(() => /\(guitar\)$/.test(state.player.clip?.label ?? ''), 15000, 'guitar space on the player');
-        assert(state.player.playing, 'stopped playing when switching');
-        const guitar = state.player.clip;
-        hear.value = 'residual';
-        hear.dispatchEvent(new Event('change'));
-        await waitFor(() => /\(residual\)$/.test(state.player.clip?.label ?? ''), 15000, 'the residual on the player');
-        const residual = state.player.clip;
-        const original = energy(state.clip);
+        const slide = (id, value) => {
+            const el = doc.getElementById(id);
+            el.value = String(value);
+            el.dispatchEvent(new Event('input'));
+        };
+        slide('guitarVolume', 0.7);
+        await waitFor(() => state.player.stems.length === 2, 15000, 'stems on the player');
+        assert(state.player.playing, 'stopped playing when the stems were added');
+        assertClose(state.player.trackGains[1].gain.value, 0.7, 1e-6, 'guitar space volume:');
+        assertClose(state.player.trackGains[0].gain.value, 0.8, 1e-6, 'the song keeps its volume:');
+
+        const energy = (x) => x.reduce((s, v) => s + v * v, 0) / x.length;
+        const [guitar, residual] = state.player.stems;
+        const original = energy(state.clip.samples);
         assert(energy(guitar) > 0.5 * original, `guitar space keeps ${energy(guitar) / original} of a plucked chord`);
         assert(energy(residual) < energy(guitar), 'the residual is louder than guitar space for a plucked chord');
 
-        hear.value = 'original';
-        hear.dispatchEvent(new Event('change'));
-        await waitFor(() => state.player.clip === state.clip, 5000, 'the song back on the player');
+        slide('guitarVolume', 0);
+        await waitFor(() => state.player.stems.length === 0, 5000, 'stems dropped when both sliders are at 0');
         state.player.pause();
     } finally {
         frame.remove();

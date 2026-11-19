@@ -417,11 +417,14 @@ list, and keeps its current spectrogram and harmonic-sum layers.
   box shows how long its step took, or "reused".
 - **Views 1–3.**
 
-- **Listening (view 7):** **Hear** switches the song track between the song,
-  guitar space only, and the residual only, without stopping. They're made with
-  `resynthesize` and the soft mask `min(1, reconstruction / original)`
-  (`explainedMask` in `dictionary.js`) or one minus it, so the two add up to
-  the song. Each is computed once per projection.
+- **Listening (view 7):** **Guitar space** and **Residual** volume sliders sit
+  beside Song and Notes, so any mix of the four can play.
+  - The two are made with `resynthesize` and the soft mask
+    `min(1, reconstruction / original)` (`explainedMask` in `dictionary.js`),
+    or one minus it, so they add up to the song.
+  - They're computed the first time a slider goes up, once per projection.
+  - The player takes them as stems: extra channels of the song's WAV, so they
+    stay sample-locked to it at any speed, each with its own gain.
 
 **Not yet:** listening to one layer (once there are layers), views 4–6 and 8,
 and export.

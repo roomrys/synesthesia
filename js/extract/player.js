@@ -6,11 +6,17 @@
 // the song's own clock (audio.currentTime) and scaled by the speed, so they stay
 // in sync at any speed. With no audio (a notes file on its own), a clock based
 // on the AudioContext stands in.
+//
+// Stems: extra versions of the song (the debug page's guitar space and
+// residual) can play alongside it with their own volumes. They go into the same
+// WAV as extra channels, so they stay sample-locked to the song at any speed,
+// and a channel splitter gives each channel its own gain. Channel 0 is the song.
 
 import { encodeWav } from './dsp.js';
 
 const LOOKAHEAD = 0.2;   // seconds of real time scheduled ahead
 const TICK_MS = 25;
+const MAX_TRACKS = 4;    // the song plus up to three stems
 
 export class Player {
     /** @param {{create: Function}} voiceImpl  A Voice implementation. */
@@ -30,16 +36,67 @@ export class Player {
 
     async init() {
         this.ctx = new AudioContext({ latencyHint: 'interactive' });
-        this.songGain = this.ctx.createGain();
         this.notesGain = this.ctx.createGain();
-        this.songGain.connect(this.ctx.destination);
         this.notesGain.connect(this.ctx.destination);
         this.voice = await this.voiceImpl.create(this.ctx, this.notesGain);
+
+        // One gain per channel of the song's WAV: the song, then any stems (silent until turned up).
+        const splitter = this.ctx.createChannelSplitter(MAX_TRACKS);
+        this.trackGains = Array.from({ length: MAX_TRACKS }, (_, i) => {
+            const gain = this.ctx.createGain();
+            if (i > 0) gain.gain.value = 0;
+            splitter.connect(gain, i);
+            gain.connect(this.ctx.destination);
+            return gain;
+        });
+        this.songGain = this.trackGains[0];
+        this.stems = [];
 
         this.audio = new Audio();
         this.audio.preservesPitch = true;
         this.audio.preload = 'auto';
-        this.ctx.createMediaElementSource(this.audio).connect(this.songGain);
+        this.ctx.createMediaElementSource(this.audio).connect(splitter);
+    }
+
+    /** Point the <audio> element at a WAV of the clip and its stems. */
+    loadAudio() {
+        if (this.url) URL.revokeObjectURL(this.url);
+        this.url = null;
+        if (this.clip && this.clip.samples.length) {
+            const channels = [this.clip.samples, ...this.stems];
+            this.url = URL.createObjectURL(encodeWav(channels.length > 1 ? channels : this.clip.samples, this.clip.sampleRate));
+            this.audio.src = this.url;
+        } else {
+            this.audio.removeAttribute('src');
+            this.audio.load();
+        }
+    }
+
+    /**
+     * Play other versions of the song alongside it (up to three), each at the
+     * clip's sample rate (padded or cut to its length). Their volumes start at 0;
+     * see setTrackVolume. Keeps the position, and keeps playing if it was.
+     */
+    async setStems(stems = []) {
+        if (!this.clip) return;
+        const length = this.clip.samples.length;
+        this.stems = stems.slice(0, MAX_TRACKS - 1).map((s) => {
+            if (s.length === length) return s;
+            const fitted = new Float32Array(length);
+            fitted.set(s.subarray(0, length));
+            return fitted;
+        });
+        const wasPlaying = this.playing;
+        const at = this.currentTime;
+        this.pause();
+        this.loadAudio();
+        this.position = at;
+        if (wasPlaying) await this.play(at);
+    }
+
+    /** Volume of a track: 0 is the song, 1.. the stems in the order given to setStems. */
+    setTrackVolume(index, v) {
+        this.trackGains[index].gain.value = v;
     }
 
     /** Play one short note now, to preview a pitch while editing. */
@@ -52,15 +109,8 @@ export class Player {
     setClip(clip) {
         this.pause();
         this.clip = clip;
-        if (this.url) URL.revokeObjectURL(this.url);
-        this.url = null;
-        if (clip && clip.samples.length) {
-            this.url = URL.createObjectURL(encodeWav(clip.samples, clip.sampleRate));
-            this.audio.src = this.url;
-        } else {
-            this.audio.removeAttribute('src');
-            this.audio.load();
-        }
+        this.stems = [];
+        this.loadAudio();
         this.position = 0;
         this.updateLength();
     }

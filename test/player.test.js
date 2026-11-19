@@ -2,7 +2,7 @@
 // Uses a real AudioContext (headless Chrome runs with autoplay allowed) and a
 // fake voice that records what it is asked to play.
 
-import { test, assert, assertClose } from './runner.js';
+import { test, assert, assertClose, assertEqual } from './runner.js';
 import { Player } from '../js/extract/player.js';
 import { sequence, clipOf } from './signals.js';
 
@@ -70,6 +70,25 @@ test('player: looping stays inside the loop and replays its notes', async () => 
     assert(playing, 'stopped instead of looping');
     assert(t >= 1.0 && t <= 1.4, `time ${t} outside the loop`);
     assert(calls.filter((c) => c.midi === 64).length >= 2, `note scheduled ${calls.length} times, expected at least 2`);
+});
+
+test('player: adding stems keeps playing from the same moment, with their own volumes', async () => {
+    const { player } = await makePlayer(3);
+    await player.play(0.5);
+    await sleep(300);
+    const before = player.currentTime;
+    const stem = sequence([{ midi: 57, seconds: 3 }]);
+    await player.setStems([stem, stem.subarray(0, 1000)]);   // the short one is padded to the clip's length
+    assert(player.playing, 'stopped when stems were added');
+    assertEqual(player.stems.length, 2, 'stems:');
+    assertEqual(player.stems[1].length, player.clip.samples.length, 'padded stem length:');
+    assert(Math.abs(player.currentTime - before) < 0.15, `jumped from ${before} to ${player.currentTime}`);
+    player.setTrackVolume(1, 0.5);
+    assertClose(player.trackGains[1].gain.value, 0.5, 1e-6, 'stem volume:');
+    assertClose(player.trackGains[2].gain.value, 0, 1e-6, 'stems start silent:');
+    await player.setStems([]);
+    assertEqual(player.stems.length, 0, 'stems after clearing:');
+    player.pause();
 });
 
 test('player: without looping, playback stops at the end', async () => {

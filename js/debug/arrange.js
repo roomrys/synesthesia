@@ -9,14 +9,13 @@
 import { registry, loadStep, STEPS } from '../extract/arrange/registry.js';
 import { runPipeline } from '../extract/arrange/pipeline.js';
 import { reconstruct, soundName, explainedMask } from '../extract/arrange/dictionary.js';
-import { makeClip } from '../extract/types.js';
 import { LAYER_RATE } from '../extract/spectrum.js';
 import arrange from '../extract/extractors/arrange.js';
 import { getConfig, loadAll, loadImpl } from '../extract/registry.js';
 import { sourceButtons, sourceHint, liveError } from '../extract/sources/ui.js';
 import { Player } from '../extract/player.js';
 import { midiToHz, midiToName, hzToMidi, noteColor } from '../extract/music.js';
-import { findAudibleRange } from '../extract/dsp.js';
+import { findAudibleRange, resampleFast } from '../extract/dsp.js';
 import { PRESETS } from './test-signals.js';
 import * as plots from './plots.js';
 
@@ -201,7 +200,7 @@ async function run() {
         if (!state.pitchCropMoved || !state.pitchCrop) fitPitchCrop();
         else setPitchCrop(state.pitchCrop.min, state.pitchCrop.max);
         $('playButton').disabled = false;
-        await updateHearing();   // a new projection means new guitar-space audio
+        await updateStems();   // a new projection means new guitar-space audio
         document.body.dataset.run = 'done';
         draw();
     } catch (err) {
@@ -799,6 +798,7 @@ async function ensurePlayer() {
     await player.init();
     player.setSongVolume(Number($('songVolume').value));
     player.setNotesVolume(Number($('notesVolume').value));
+    STEM_SLIDERS.forEach((id, i) => player.setTrackVolume(i + 1, Number($(id).value)));
     player.onStop = () => {
         $('playButton').textContent = '▶ Play';
         state.view.cursor = player.position;
@@ -824,7 +824,7 @@ async function togglePlay() {
             draw();
             return;
         }
-        await updateHearing();
+        await updateStems();
         let from = state.view.cursor ?? 0;
         if ($('loopToggle').checked && (from < state.crop.start || from >= state.crop.end - 0.05)) from = state.crop.start;
         await player.play(from);
@@ -848,40 +848,55 @@ function follow() {
     requestAnimationFrame(follow);
 }
 
-/**
- * The clip the song track plays: the audio itself, or guitar space / the residual,
- * resynthesised from the spectrogram with a soft mask (computed once per projection).
- */
-async function listeningClip(kind) {
-    if (kind === 'original' || !state.trace) return state.clip;
+// Stems: guitar space and the residual, resynthesised from the spectrogram with a
+// soft mask and its complement (so they add up to the song), then played with
+// the song as extra channels: track 1 is guitar space, track 2 the residual.
+const STEM_SLIDERS = ['guitarVolume', 'residualVolume'];
+
+/** Guitar space and the residual at the clip's rate, computed once per projection (shared while in progress). */
+function stems() {
     const d = state.derived;
-    if (!d.audio[kind]) {
-        const { spectrogram, stepOptions } = state.trace;
-        const guitar = explainedMask(spectrogram.frames, d.recon);
-        const mask = kind === 'guitar' ? guitar : guitar.map((m) => m.map((v) => 1 - v));
-        const representation = await loadStep('representation', state.trace.options.representation);
-        if (!representation.resynthesize) throw new Error(`The ${representation.id} representation can't be played back.`);
-        setStatus($('audioStatus'), `Preparing ${kind === 'guitar' ? 'guitar space' : 'the residual'}…`);
-        const samples = await representation.resynthesize(state.clip, mask, { options: stepOptions.representation });
-        d.audio[kind] = makeClip(samples, LAYER_RATE, `${state.clip.label ?? 'Clip'} (${kind})`);
-        setStatus($('audioStatus'), '');
-    }
-    return d.audio[kind];
+    d.audio.stems ??= computeStems(d).catch((err) => {
+        delete d.audio.stems;   // try again next time
+        throw err;
+    });
+    return d.audio.stems;
 }
 
-/** Put the chosen version of the song on the player, keeping the playhead and whether it's playing. */
-async function updateHearing() {
+async function computeStems(d) {
+    const { clip, trace } = state;
+    const representation = await loadStep('representation', trace.options.representation);
+    if (!representation.resynthesize) throw new Error(`The ${representation.id} representation can't be played back.`);
+    setStatus($('audioStatus'), 'Preparing guitar space and the residual…');
+    const guitarMask = explainedMask(trace.spectrogram.frames, d.recon);
+    const residualMask = guitarMask.map((m) => m.map((v) => 1 - v));
+    const opts = { options: trace.stepOptions.representation };
+    // At the clip's rate and exactly its length, as the player's channels must be.
+    const toClipRate = async (x) => {
+        const y = await resampleFast(x, LAYER_RATE, clip.sampleRate);
+        const out = new Float32Array(clip.samples.length);
+        out.set(y.subarray(0, out.length));
+        return out;
+    };
+    const guitar = await toClipRate(await representation.resynthesize(clip, guitarMask, opts));
+    const residual = await toClipRate(await representation.resynthesize(clip, residualMask, opts));
+    setStatus($('audioStatus'), '');
+    return [guitar, residual];
+}
+
+/**
+ * Give the player the current stems if a stem slider is up, or none (so stale
+ * ones from an earlier projection never play). Keeps the playhead and playback.
+ */
+async function updateStems() {
     const player = state.player;
-    if (!player || !state.clip) return;
+    if (!player || !state.trace) return;
     try {
-        const clip = await listeningClip($('hearSelect').value);
-        if (player.clip === clip) return;
-        const wasPlaying = player.playing;
-        const at = wasPlaying ? player.currentTime : (state.view.cursor ?? 0);
-        player.setClip(clip);
-        player.position = at;
-        updateLoop();
-        if (wasPlaying) await player.play(at);
+        const wanted = STEM_SLIDERS.some((id) => Number($(id).value) > 0);
+        const next = wanted ? await stems() : [];
+        const current = player.stems;
+        if (next.length === current.length && next.every((s, i) => s === current[i])) return;
+        await player.setStems(next);
     } catch (err) {
         setStatus($('audioStatus'), `Playback failed: ${err?.message ?? err}`, 'error');
     }
@@ -922,7 +937,10 @@ async function init() {
     $('fitButton').addEventListener('click', () => state.view.reset(state.view.duration));
     for (const box of document.querySelectorAll('input[data-view]')) box.addEventListener('change', draw);
     $('loopToggle').addEventListener('change', updateLoop);
-    $('hearSelect').addEventListener('change', updateHearing);
+    STEM_SLIDERS.forEach((id, i) => $(id).addEventListener('input', () => {
+        state.player?.setTrackVolume(i + 1, Number($(id).value));
+        updateStems();
+    }));
     $('speed').addEventListener('input', () => setSpeed(Number($('speed').value)));
     $('cropStartButton').addEventListener('click', () => setCrop(Math.min(state.view.cursor ?? 0, state.crop.end - 0.1), state.crop.end));
     $('cropEndButton').addEventListener('click', () => setCrop(state.crop.start, Math.max(state.view.cursor ?? 0, state.crop.start + 0.1)));
