@@ -396,8 +396,11 @@ production page should. `extract.html` only gains `arrange` in its detector
 list, and keeps its current spectrogram and harmonic-sum layers.
 
 **Built:**
-- **Audio:** test clips (a C major triad, a six-string E minor, a melody, a
-  drum hit over a held note, and chords with bass and drums) or an audio file.
+- **Audio:** the same sources as `extract.html` (a browser tab, an audio file,
+  and any added later), through the shared buttons in
+  `js/extract/sources/ui.js`. Or test clips: a C major triad, a six-string
+  E minor, a melody, a drum hit over a held note, and chords with bass and
+  drums. **Clear audio** drops the clip and everything computed from it.
   `?preset=band&cursor=2.3` opens a test clip, with a moment picked for the
   frame slice.
 - **Playback:** the song with the kept notes on the synth.

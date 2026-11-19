@@ -10,8 +10,8 @@ import { registry, loadStep, STEPS } from '../extract/arrange/registry.js';
 import { runPipeline } from '../extract/arrange/pipeline.js';
 import { reconstruct, soundName } from '../extract/arrange/dictionary.js';
 import arrange from '../extract/extractors/arrange.js';
-import fileSource from '../extract/sources/file.js';
-import { loadImpl } from '../extract/registry.js';
+import { getConfig, loadAll, loadImpl } from '../extract/registry.js';
+import { sourceButtons, sourceHint, liveError } from '../extract/sources/ui.js';
 import { Player } from '../extract/player.js';
 import { midiToHz, midiToName, hzToMidi, noteColor } from '../extract/music.js';
 import { PRESETS } from './test-signals.js';
@@ -509,6 +509,95 @@ function draw() {
     });
 }
 
+// ----- audio sources -----
+
+const MAX_LISTEN_SECONDS = 20 * 60;
+
+async function setupSources() {
+    const config = getConfig();
+    const sources = await loadAll('source', config);
+    $('sourceButtons').append(...sourceButtons(sources, { onLive: startLive, onFile: openFile }));
+    $('sourceHint').textContent = sourceHint(sources, config, { page: 'debug/arrange.html' });
+    if (!sources.length) setStatus($('audioStatus'), 'None of the configured audio sources work in this browser.', 'error');
+}
+
+function setListening(listening) {
+    $('liveControls').hidden = !listening;
+    for (const b of $('sourceButtons').querySelectorAll('button')) b.disabled = listening;
+    $('presetSelect').disabled = listening;
+}
+
+async function startLive(source) {
+    setStatus($('audioStatus'), '');
+    state.player?.pause();
+    try {
+        await source.start({
+            onLevel: ({ peak, seconds }) => {
+                $('level').value = Math.max(peak, $('level').value * 0.85);
+                $('elapsed').textContent = `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
+                if (seconds >= MAX_LISTEN_SECONDS) stopLive(`Stopped after ${MAX_LISTEN_SECONDS / 60} minutes.`);
+            },
+            onEnded: () => stopLive(),
+        });
+        state.live = source;
+        $('elapsed').textContent = '0:00';
+        setListening(true);
+    } catch (err) {
+        const { cancelled, message } = liveError(err);
+        setStatus($('audioStatus'), message, cancelled ? '' : 'error');
+    }
+}
+
+async function stopLive(message = '') {
+    const source = state.live;
+    if (!source) return;
+    state.live = null;
+    setListening(false);
+    try {
+        const clip = await source.stop();
+        if (clip.duration < 0.5) {
+            setStatus($('audioStatus'), 'Less than half a second of audio was captured.', 'error');
+            return;
+        }
+        setStatus($('audioStatus'), message);
+        $('presetSelect').value = '';
+        await setClip(clip);
+    } catch (err) {
+        setStatus($('audioStatus'), err?.message ?? String(err), 'error');
+    }
+}
+
+async function openFile(source, file) {
+    setStatus($('audioStatus'), `Opening ${file.name}…`);
+    try {
+        const clip = await source.open(file);
+        setStatus($('audioStatus'), '');
+        $('presetSelect').value = '';
+        await setClip(clip);
+    } catch (err) {
+        setStatus($('audioStatus'), err?.message ?? String(err), 'error');
+    }
+}
+
+/** Drop the clip and everything computed from it (audio stays in memory only while in use). */
+function clearClip() {
+    state.controller?.abort();
+    state.player?.pause();
+    state.player?.setClip(null);
+    state.player?.setNotes([]);
+    state.clip = null;
+    state.trace = null;
+    state.derived = null;
+    $('clipRow').hidden = true;
+    $('runButton').disabled = true;
+    $('playButton').disabled = true;
+    $('presetSelect').value = '';
+    setStatus($('runStatus'), '');
+    $('timings').textContent = '';
+    for (const canvas of document.querySelectorAll('#plots canvas')) canvas.hidden = true;
+    $('sliceRow').hidden = true;
+}
+
 // ----- audio and playback -----
 
 async function setClip(clip) {
@@ -518,6 +607,7 @@ async function setClip(clip) {
     state.view.cursor = null;
     state.view.reset(clip.duration);
     $('clipInfo').textContent = `${clip.label ?? 'Clip'} · ${clip.duration.toFixed(2)} s · ${clip.sampleRate} Hz`;
+    $('clipRow').hidden = false;
     $('runButton').disabled = false;
     state.player?.setClip(clip);
     await run();
@@ -571,18 +661,9 @@ async function init() {
         const preset = PRESETS[$('presetSelect').value];
         if (preset) setClip(preset.make());
     });
-    $('fileInput').addEventListener('change', async () => {
-        const file = $('fileInput').files[0];
-        if (!file) return;
-        try {
-            setStatus($('audioStatus'), 'Decoding…');
-            await setClip(await fileSource.open(file));
-            setStatus($('audioStatus'), '');
-            $('presetSelect').value = '';
-        } catch (err) {
-            setStatus($('audioStatus'), err?.message ?? String(err), 'error');
-        }
-    });
+    $('stopButton').addEventListener('click', () => stopLive());
+    $('clearButton').addEventListener('click', clearClip);
+    await setupSources();
     $('runButton').addEventListener('click', run);
     $('resetButton').addEventListener('click', async () => {
         state.options = freshOptions();

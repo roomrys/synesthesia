@@ -371,7 +371,7 @@ js/extract/
   spectrum.js              FFT, spectrogram, harmonic sum, onsets (pure)
   metadata.js              song and artist guessed from a label (pure)
   capture-worklet.js       AudioWorklet for live sources
-  sources/                 live.js (shared), tab.js, file.js
+  sources/                 live.js (shared), tab.js, file.js; ui.js (source buttons, shared with debug pages)
   extractors/              index.js (runExtractor), yin.js, arrange.js (pure)
   arrange/                 the arrangement pipeline's steps (see arrangement.md) (pure)
   voices/                  tone.js

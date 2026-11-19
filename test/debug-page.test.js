@@ -88,12 +88,29 @@ test('debug page: changing a late step reuses the analysis; an audio file runs t
         assert(/analysis reused/.test(timings) && /projector reused/.test(timings), `timings: ${timings}`);
 
         const file = new File([wavBytes(sequence([{ seconds: 0.2 }, { midi: 64, seconds: 0.5 }], 44100, { harmonics: [1, 0.5, 0.3] }), 44100)], 'e4.wav', { type: 'audio/wav' });
-        const fileInput = doc.getElementById('fileInput');
+        const fileInput = doc.querySelector('#sourceButtons input[type="file"]');
         const transfer = new DataTransfer();
         transfer.items.add(file);
         fileInput.files = transfer.files;
         const fromFile = await runAndWait(doc, () => fileInput.dispatchEvent(new Event('change')));
         assert(/Notes: E4$/.test(fromFile), `file status: ${fromFile}`);
+
+        doc.getElementById('clearButton').click();
+        assertEqual(frame.contentWindow.debugPage.state.clip, null, 'clip after Clear:');
+        assert(doc.getElementById('runButton').disabled, 'Run still enabled after Clear');
+    } finally {
+        frame.remove();
+    }
+});
+
+test('debug page: offers the same audio sources as the note extractor', async () => {
+    const { loadAll, getConfig } = await import('../js/extract/registry.js');
+    const expected = (await loadAll('source', getConfig(''))).map((s) => s.id).join(',');
+    const { frame, doc } = await loadPage();
+    try {
+        const ids = [...doc.querySelectorAll('#sourceButtons button')].map((b) => b.dataset.source).join(',');
+        assert(expected.includes('file'), `expected sources: ${expected}`);
+        assertEqual(ids, expected, 'sources:');
     } finally {
         frame.remove();
     }

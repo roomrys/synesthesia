@@ -2,14 +2,7 @@
 
 main { max-width: none; }
 
-.file-button {
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 5px 12px;
-    background: #fff;
-    cursor: pointer;
-}
-.file-button:hover { border-color: var(--accent); }
+#sourceButtons { margin: 0; }
 
 .steps {
     display: grid;

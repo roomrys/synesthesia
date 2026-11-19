@@ -21,10 +21,19 @@
         <section class="panel">
             <h2><span class="step">1</span> Audio</h2>
             <div class="row">
-                <label>Test clip <select id="presetSelect"><option value="">—</option></select></label>
+                <span id="sourceButtons" class="row"></span>
                 <span class="hint">or</span>
-                <label class="file-button">Open an audio file… <input type="file" id="fileInput" accept="audio/*" hidden></label>
-                <span id="clipInfo" class="hint"></span>
+                <label>Test clip <select id="presetSelect"><option value="">—</option></select></label>
+            </div>
+            <div class="row" id="liveControls" hidden>
+                <button id="stopButton" class="primary">Stop</button>
+                <span class="listening"><span class="dot"></span> Listening <span id="elapsed">0:00</span></span>
+                <meter id="level" min="0" max="1" low="0.6" high="0.9" optimum="0.3" value="0"></meter>
+            </div>
+            <p class="hint" id="sourceHint"></p>
+            <div class="row" id="clipRow" hidden>
+                <span id="clipInfo"></span>
+                <button id="clearButton">Clear audio</button>
             </div>
             <div class="row transport">
                 <button id="playButton" disabled title="Space">▶ Play</button>
