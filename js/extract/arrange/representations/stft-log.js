@@ -106,6 +106,78 @@ export default {
         return { hopSeconds: hop, hz: s.hz, frames };
     },
 
+    /**
+     * Audio for part of the clip: `mask` has one array per spectrogram frame, with
+     * a value 0..1 per axis bin (e.g. the reconstruction divided by the original).
+     * Each frame's own transform is scaled by the mask, read off the log axis at
+     * every FFT bin's frequency, keeping the clip's phase, and transformed back
+     * with overlap-add. A mask of all ones gives the clip back (at 16 kHz).
+     * @returns {Promise<Float32Array>} samples at 16 kHz
+     */
+    async resynthesize(clip, mask, { options, onProgress, signal } = {}) {
+        const o = { ...defaults, ...options };
+        const x = clip.sampleRate === LAYER_RATE ? clip.samples : await resampleFast(clip.samples, clip.sampleRate, LAYER_RATE);
+        const s = setup(o);
+        const n = o.fftSize;
+        const half = n / 2;
+        const duration = x.length / LAYER_RATE;
+        const hop = Math.max(o.hopSeconds, duration / o.maxFrames);
+        const hopSamples = hop * LAYER_RATE;
+
+        // Where each FFT bin falls on the axis: the two axis bins either side and the weight between them.
+        const axisPos = new Float32Array(half + 1);
+        const midi0 = o.minMidi - 0.5 + 0.5 / o.binsPerSemitone;   // centre of axis bin 0
+        for (let k = 0; k <= half; k++) {
+            const hz = (k * LAYER_RATE) / n;
+            const pos = hz > 0 ? (hzToMidi(hz) - midi0) * o.binsPerSemitone : 0;
+            axisPos[k] = Math.max(0, Math.min(s.hz.length - 1, pos));
+        }
+
+        const out = new Float32Array(x.length);
+        const norm = new Float32Array(x.length);
+        const re = new Float32Array(n);
+        const im = new Float32Array(n);
+        const gain = new Float32Array(half + 1);
+        for (let f = 0; f < mask.length; f++) {
+            if (f % 200 === 0) {
+                if (signal?.aborted) throw cancelled();
+                onProgress?.(f / mask.length);
+                await new Promise((r) => setTimeout(r));
+            }
+            const first = Math.round(f * hopSamples) - half;
+            for (let i = 0; i < n; i++) {
+                const j = first + i;
+                re[i] = j >= 0 && j < x.length ? x[j] * s.window[i] : 0;
+                im[i] = 0;
+            }
+            fft(re, im);
+            const m = mask[f];
+            for (let k = 0; k <= half; k++) {
+                const p = axisPos[k];
+                const a = Math.floor(p);
+                const b = Math.min(m.length - 1, a + 1);
+                gain[k] = m[a] + (m[b] - m[a]) * (p - a);
+            }
+            // Scale both halves of the (conjugate-symmetric) spectrum, then inverse FFT by conjugation.
+            for (let k = 0; k < n; k++) {
+                const g = gain[k <= half ? k : n - k];
+                re[k] *= g;
+                im[k] = -im[k] * g;
+            }
+            fft(re, im);
+            for (let i = 0; i < n; i++) {
+                const j = first + i;
+                if (j < 0 || j >= x.length) continue;
+                const w = s.window[i];
+                out[j] += (re[i] / n) * w;
+                norm[j] += w * w;
+            }
+        }
+        for (let i = 0; i < out.length; i++) out[i] = norm[i] > 1e-6 ? out[i] / norm[i] : 0;
+        onProgress?.(1);
+        return out;
+    },
+
     /** How a steady unit sine at `hz` looks in this representation (computed, then cached). */
     kernel(hz, { options } = {}) {
         const o = { ...defaults, ...options };

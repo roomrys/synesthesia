@@ -52,6 +52,20 @@ export function reconstruct(dictionary, activations) {
     return out;
 }
 
+/**
+ * How much of each bin the reconstruction accounts for, 0..1: min(1, recon / original).
+ * Used as a soft mask to hear guitar space; 1 − mask is the residual, and the two
+ * add back up to the original.
+ */
+export function explainedMask(frames, recon) {
+    return frames.map((v, f) => {
+        const r = recon[f];
+        const m = new Float32Array(v.length);
+        for (let i = 0; i < v.length; i++) m[i] = v[i] > 0 ? Math.min(1, r[i] / v[i]) : 0;
+        return m;
+    });
+}
+
 /** A short name for a sound: the note name for a pitch, or the technique. */
 export function soundName(sound) {
     return 'midi' in sound ? midiToName(sound.midi) : sound.technique;

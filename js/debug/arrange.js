@@ -8,7 +8,9 @@
 
 import { registry, loadStep, STEPS } from '../extract/arrange/registry.js';
 import { runPipeline } from '../extract/arrange/pipeline.js';
-import { reconstruct, soundName } from '../extract/arrange/dictionary.js';
+import { reconstruct, soundName, explainedMask } from '../extract/arrange/dictionary.js';
+import { makeClip } from '../extract/types.js';
+import { LAYER_RATE } from '../extract/spectrum.js';
 import arrange from '../extract/extractors/arrange.js';
 import { getConfig, loadAll, loadImpl } from '../extract/registry.js';
 import { sourceButtons, sourceHint, liveError } from '../extract/sources/ui.js';
@@ -199,6 +201,7 @@ async function run() {
         if (!state.pitchCropMoved || !state.pitchCrop) fitPitchCrop();
         else setPitchCrop(state.pitchCrop.min, state.pitchCrop.max);
         $('playButton').disabled = false;
+        await updateHearing();   // a new projection means new guitar-space audio
         document.body.dataset.run = 'done';
         draw();
     } catch (err) {
@@ -248,7 +251,12 @@ function derive(previous) {
         if (member === 0 && 'midi' in sound) rowOfMidi.set(sound.midi, r);
     });
     const midis = [...rowOfMidi.keys()];   // high to low, as the rows go
-    state.derived = { recon, ref, maxActivation, order, rowOf, rowOfMidi, midis, images: null, imagesRange: null };
+    // Resynthesised audio depends on the analysis and the reconstruction, like the images.
+    const sameAudio = sameProjection && previous.outputs.representation === t.outputs.representation;
+    state.derived = {
+        recon, ref, maxActivation, order, rowOf, rowOfMidi, midis, images: null, imagesRange: null,
+        audio: sameAudio ? prev.audio : {},
+    };
     if (sameProjection && prev.images && prev.imagesRange === state.rangeDb && previous.outputs.representation === t.outputs.representation) {
         state.derived.images = prev.images;
         state.derived.imagesRange = prev.imagesRange;
@@ -816,6 +824,7 @@ async function togglePlay() {
             draw();
             return;
         }
+        await updateHearing();
         let from = state.view.cursor ?? 0;
         if ($('loopToggle').checked && (from < state.crop.start || from >= state.crop.end - 0.05)) from = state.crop.start;
         await player.play(from);
@@ -837,6 +846,45 @@ function follow() {
     if ($('followPlayhead').checked && (t > state.view.t1 || t < state.view.t0)) state.view.panBy(t - state.view.t0 - 0.1 * span);
     else draw();
     requestAnimationFrame(follow);
+}
+
+/**
+ * The clip the song track plays: the audio itself, or guitar space / the residual,
+ * resynthesised from the spectrogram with a soft mask (computed once per projection).
+ */
+async function listeningClip(kind) {
+    if (kind === 'original' || !state.trace) return state.clip;
+    const d = state.derived;
+    if (!d.audio[kind]) {
+        const { spectrogram, stepOptions } = state.trace;
+        const guitar = explainedMask(spectrogram.frames, d.recon);
+        const mask = kind === 'guitar' ? guitar : guitar.map((m) => m.map((v) => 1 - v));
+        const representation = await loadStep('representation', state.trace.options.representation);
+        if (!representation.resynthesize) throw new Error(`The ${representation.id} representation can't be played back.`);
+        setStatus($('audioStatus'), `Preparing ${kind === 'guitar' ? 'guitar space' : 'the residual'}…`);
+        const samples = await representation.resynthesize(state.clip, mask, { options: stepOptions.representation });
+        d.audio[kind] = makeClip(samples, LAYER_RATE, `${state.clip.label ?? 'Clip'} (${kind})`);
+        setStatus($('audioStatus'), '');
+    }
+    return d.audio[kind];
+}
+
+/** Put the chosen version of the song on the player, keeping the playhead and whether it's playing. */
+async function updateHearing() {
+    const player = state.player;
+    if (!player || !state.clip) return;
+    try {
+        const clip = await listeningClip($('hearSelect').value);
+        if (player.clip === clip) return;
+        const wasPlaying = player.playing;
+        const at = wasPlaying ? player.currentTime : (state.view.cursor ?? 0);
+        player.setClip(clip);
+        player.position = at;
+        updateLoop();
+        if (wasPlaying) await player.play(at);
+    } catch (err) {
+        setStatus($('audioStatus'), `Playback failed: ${err?.message ?? err}`, 'error');
+    }
 }
 
 function setSpeed(rate) {
@@ -874,6 +922,7 @@ async function init() {
     $('fitButton').addEventListener('click', () => state.view.reset(state.view.duration));
     for (const box of document.querySelectorAll('input[data-view]')) box.addEventListener('change', draw);
     $('loopToggle').addEventListener('change', updateLoop);
+    $('hearSelect').addEventListener('change', updateHearing);
     $('speed').addEventListener('input', () => setSpeed(Number($('speed').value)));
     $('cropStartButton').addEventListener('click', () => setCrop(Math.min(state.view.cursor ?? 0, state.crop.end - 0.1), state.crop.end));
     $('cropEndButton').addEventListener('click', () => setCrop(state.crop.start, Math.max(state.view.cursor ?? 0, state.crop.start + 0.1)));

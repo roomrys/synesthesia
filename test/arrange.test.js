@@ -49,6 +49,29 @@ for (const id of ids('representation')) {
     });
 }
 
+for (const id of ids('representation')) {
+    test(`arrange representation ${id}: resynthesising with a mask of ones gives the clip back, and guitar + residual add up`, async () => {
+        const impl = await loadStep('representation', id);
+        if (!impl.resynthesize) return;   // optional
+        const samples = sequence([{ seconds: 0.1 }, { midi: 57, seconds: 0.6 }, { seconds: 0.1 }], RATE, { harmonics: GUITARISH });
+        const clip = clipOf(samples, RATE);
+        const spec = await impl.analyse(clip, { options: impl.defaults });
+        const ones = spec.frames.map((f) => new Float32Array(f.length).fill(1));
+        const back = await impl.resynthesize(clip, ones, { options: impl.defaults });
+        assertEqual(back.length, samples.length, 'length:');
+        let err = 0, energy = 0;
+        for (let i = 0; i < samples.length; i++) { err += (back[i] - samples[i]) ** 2; energy += samples[i] ** 2; }
+        assert(err / energy < 1e-6, `relative error ${err / energy}`);
+
+        // Half and half: the two parts add up to the clip.
+        const halves = spec.frames.map((f) => new Float32Array(f.length).fill(0.5));
+        const half = await impl.resynthesize(clip, halves, { options: impl.defaults });
+        let diff = 0;
+        for (let i = 0; i < samples.length; i++) diff += (2 * half[i] - samples[i]) ** 2;
+        assert(diff / energy < 1e-6, `halves don't add up: ${diff / energy}`);
+    });
+}
+
 // ----- Rhythm -----
 
 for (const id of ids('rhythm')) {

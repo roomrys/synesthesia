@@ -133,6 +133,40 @@ test('debug page: crops and a draggable playhead, as on the note extractor', asy
     }
 });
 
+test('debug page: plays guitar space and the residual on their own', async () => {
+    const { frame, doc } = await loadPage();
+    const win = frame.contentWindow;
+    try {
+        const select = doc.getElementById('presetSelect');
+        await runAndWait(doc, () => { select.value = 'triad'; select.dispatchEvent(new Event('change')); });
+        const { state } = win.debugPage;
+        doc.getElementById('playButton').click();
+        await waitFor(() => state.player?.playing, 15000, 'playback');
+        const hear = doc.getElementById('hearSelect');
+        const energy = (clip) => clip.samples.reduce((s, v) => s + v * v, 0) / clip.samples.length;
+
+        hear.value = 'guitar';
+        hear.dispatchEvent(new Event('change'));
+        await waitFor(() => /\(guitar\)$/.test(state.player.clip?.label ?? ''), 15000, 'guitar space on the player');
+        assert(state.player.playing, 'stopped playing when switching');
+        const guitar = state.player.clip;
+        hear.value = 'residual';
+        hear.dispatchEvent(new Event('change'));
+        await waitFor(() => /\(residual\)$/.test(state.player.clip?.label ?? ''), 15000, 'the residual on the player');
+        const residual = state.player.clip;
+        const original = energy(state.clip);
+        assert(energy(guitar) > 0.5 * original, `guitar space keeps ${energy(guitar) / original} of a plucked chord`);
+        assert(energy(residual) < energy(guitar), 'the residual is louder than guitar space for a plucked chord');
+
+        hear.value = 'original';
+        hear.dispatchEvent(new Event('change'));
+        await waitFor(() => state.player.clip === state.clip, 5000, 'the song back on the player');
+        state.player.pause();
+    } finally {
+        frame.remove();
+    }
+});
+
 test('debug page: changing a late step reuses the analysis; an audio file runs too', async () => {
     const { frame, doc } = await loadPage();
     try {

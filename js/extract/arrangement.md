@@ -205,7 +205,7 @@ Turns audio into a spectrogram.
 ```js
 analyse(clip: AudioClip, { options }): Promise<Spectrogram>
 kernel(hz, { options }): Float32Array      // how a steady unit sine at `hz` looks
-resynthesize?(clip, mask: Float32Array[]): Promise<Float32Array>   // 📝 for listening on the debug page
+resynthesize?(clip, mask: Float32Array[], { options }): Promise<Float32Array>   // for listening on the debug page
 ```
 
 `kernel` is what timbres draw partials with, so templates smear exactly as the
@@ -219,7 +219,7 @@ page plays the guitar-space version, the residual, or one layer.
 
 | id | Notes |
 |---|---|
-| `stft-log` ✅ | The same analysis as `spectrum.js` (4096-point FFT at 16 kHz every 10 ms), mapped to a log-frequency axis with three bins per semitone from C1 up to 8 kHz. Magnitudes are absolute (a full-scale sine reads as 1), not normalised to the clip's peak, so quiet audio stays quiet. |
+| `stft-log` ✅ | The same analysis as `spectrum.js` (4096-point FFT at 16 kHz every 10 ms), mapped to a log-frequency axis with three bins per semitone from C1 up to 8 kHz. Magnitudes are absolute (a full-scale sine reads as 1), not normalised to the clip's peak, so quiet audio stays quiet. `resynthesize` reads the mask off the log axis at every FFT bin, scales each frame's own transform (keeping its phase), and overlap-adds the frames back at 16 kHz. A mask of ones gives the clip back. |
 | `multires` | Long windows for low notes, short ones for high notes, so low notes don't smear (see README). |
 | `cqt` | Constant-Q transform. |
 
@@ -417,8 +417,14 @@ list, and keeps its current spectrogram and harmonic-sum layers.
   box shows how long its step took, or "reused".
 - **Views 1–3.**
 
-**Not yet:** listening to the reconstruction, residual or a layer (view 7,
-needs `resynthesize`), views 4–6 and 8, and export.
+- **Listening (view 7):** **Hear** switches the song track between the song,
+  guitar space only, and the residual only, without stopping. They're made with
+  `resynthesize` and the soft mask `min(1, reconstruction / original)`
+  (`explainedMask` in `dictionary.js`) or one minus it, so the two add up to
+  the song. Each is computed once per projection.
+
+**Not yet:** listening to one layer (once there are layers), views 4–6 and 8,
+and export.
 
 - **Where:** `debug/` holds pages for looking under the hood, reached by URL and
   not linked from the production pages. Other debug pages (onsets, fingering)
@@ -569,8 +575,10 @@ Built so far, except where marked 📝:
 - **Debug page:** like `page.test.js`, load it in an iframe. Run a test chord
   and check every view draws, and that clicking a moment fills the frame slice
   with the chord's notes. Change a late step's option and check the analysis
-  and projection are reused. Open a generated WAV file. 📝 `resynthesize` with
-  a mask of all ones gives back the original samples.
+  and projection are reused. Open a generated WAV file. Switch Hear to guitar
+  space and the residual while playing.
+- **Resynthesis:** a mask of all ones gives back the original samples, and two
+  halves add up to it.
 
 ---
 
