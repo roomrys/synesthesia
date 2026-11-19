@@ -1,0 +1,77 @@
+/* Debug pages: on top of extract.css. */
+
+main { max-width: none; }
+
+.file-button {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 12px;
+    background: #fff;
+    cursor: pointer;
+}
+.file-button:hover { border-color: var(--accent); }
+
+.steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 10px;
+}
+
+.step-box {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    background: rgba(255, 255, 255, 0.5);
+}
+
+.step-box h3 {
+    font-size: 0.85rem;
+    margin: 0 0 6px;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.step-box h3 .reused { color: var(--muted); font-weight: normal; }
+
+.step-box select { width: 100%; margin-bottom: 6px; }
+
+.step-box .opt {
+    display: grid;
+    grid-template-columns: 1fr 7em;
+    gap: 6px;
+    align-items: center;
+    font-size: 0.8rem;
+    margin: 2px 0;
+}
+
+.step-box .opt input { width: 100%; font: inherit; padding: 2px 4px; }
+.step-box .opt.changed span { font-weight: bold; }
+.step-box .desc { font-size: 0.75rem; color: var(--muted); margin: 0 0 6px; }
+
+#plots canvas, #sliceCanvas {
+    display: block;
+    width: 100%;
+    background: #000;
+    border-radius: 4px;
+    margin: 4px 0;
+    touch-action: none;
+}
+
+.readout { font-family: ui-monospace, Menlo, monospace; font-size: 0.8rem; min-height: 1.2em; }
+
+.slice-row {
+    display: grid;
+    grid-template-columns: 1fr 260px;
+    gap: 10px;
+    align-items: start;
+}
+.slice-row[hidden] { display: none; }
+
+.legend { font-size: 0.8rem; font-family: ui-monospace, Menlo, monospace; }
+.legend div { display: flex; gap: 6px; align-items: center; }
+.legend .swatch { width: 12px; height: 12px; border-radius: 2px; flex: none; }
+
+@media (max-width: 700px) {
+    .slice-row { grid-template-columns: 1fr; }
+}

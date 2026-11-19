@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Synesthesia · Arrangement debug</title>
+    <link rel="stylesheet" href="../css/extract.css">
+    <link rel="stylesheet" href="../css/debug.css">
+    <link rel="icon" type="image/png" href="../images/favicon.png">
+</head>
+
+<body>
+    <header>
+        <a href="../extract.html" class="back">← Note extractor</a>
+        <h1>Arrangement debug</h1>
+        <span class="tag">development</span>
+    </header>
+
+    <main>
+        <section class="panel">
+            <h2><span class="step">1</span> Audio</h2>
+            <div class="row">
+                <label>Test clip <select id="presetSelect"><option value="">—</option></select></label>
+                <span class="hint">or</span>
+                <label class="file-button">Open an audio file… <input type="file" id="fileInput" accept="audio/*" hidden></label>
+                <span id="clipInfo" class="hint"></span>
+            </div>
+            <div class="row transport">
+                <button id="playButton" disabled title="Space">▶ Play</button>
+                <span class="time" id="timeDisplay">0:00.0</span>
+                <label>Song <input type="range" id="songVolume" min="0" max="1" step="0.01" value="0.8"></label>
+                <label>Notes <input type="range" id="notesVolume" min="0" max="1" step="0.01" value="0.6"></label>
+            </div>
+            <p class="status" id="audioStatus" role="status"></p>
+        </section>
+
+        <section class="panel">
+            <h2><span class="step">2</span> Pipeline</h2>
+            <div class="steps" id="steps"></div>
+            <div class="row">
+                <button id="runButton" class="primary" disabled>Run</button>
+                <label class="check"><input type="checkbox" id="autoRun" checked> Re-run when something changes</label>
+                <button id="resetButton">Reset to defaults</button>
+                <progress id="progress" max="1" value="0" hidden></progress>
+            </div>
+            <p class="status" id="runStatus" role="status"></p>
+            <p class="hint" id="timings"></p>
+        </section>
+
+        <section class="panel views">
+            <h2><span class="step">3</span> Inside the pipeline</h2>
+            <div class="row">
+                <label class="check"><input type="checkbox" data-view="original" checked> Spectrogram</label>
+                <label class="check"><input type="checkbox" data-view="reconstruction" checked> Reconstruction</label>
+                <label class="check"><input type="checkbox" data-view="residual" checked> Residual</label>
+                <label class="check"><input type="checkbox" data-view="activations" checked> Activations</label>
+                <label class="check"><input type="checkbox" data-view="slice" checked> Frame slice</label>
+                <span class="divider"></span>
+                <label>Range <input type="range" id="rangeDb" min="20" max="120" step="5" value="70">
+                    <output id="rangeDisplay" class="time">70 dB</output></label>
+                <button id="fitButton">Show all</button>
+            </div>
+            <div id="plots"></div>
+            <p class="hint readout" id="readout">&nbsp;</p>
+            <div class="slice-row" id="sliceRow">
+                <canvas id="sliceCanvas"></canvas>
+                <div class="legend" id="sliceLegend"></div>
+            </div>
+            <p class="hint">Scroll to zoom, drag to pan, click to look at one moment in the frame slice.
+                <b>Residual</b>: orange is sound the templates don't explain, blue is sound they add that isn't
+                there. <b>Activations</b>: one row per template (percussive sounds at the top); white outlines are
+                candidates, filled boxes are the notes kept, blue ticks are onsets.</p>
+        </section>
+
+        <p class="privacy">Audio stays in this page's memory and is never saved or uploaded.</p>
+    </main>
+
+    <script type="module" src="../js/debug/arrange.js"></script>
+</body>
+
+</html>

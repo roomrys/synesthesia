@@ -60,9 +60,14 @@ function toNotes(choices, ensemble) {
 
 /**
  * Run the pipeline on a clip.
+ *
+ * `reuse` is the trace of an earlier run on the same clip: any step whose
+ * implementation, options and inputs haven't changed keeps its earlier output,
+ * so changing a late step's setting doesn't redo the analysis.
+ *
  * @returns {Promise<{ notes, stats, trace? }>}
  */
-export async function runPipeline(clip, options, { onProgress, signal, trace = false } = {}) {
+export async function runPipeline(clip, options, { onProgress, signal, trace = false, reuse = null } = {}) {
     const impls = {};
     for (const step of STEPS) impls[step] = await loadStep(step, options[step]);
     const opt = Object.fromEntries(STEPS.map((step) => [step, stepOptions(options, step, impls[step])]));
@@ -70,19 +75,58 @@ export async function runPipeline(clip, options, { onProgress, signal, trace = f
     // Analysis and projection take nearly all the time.
     const part = (from, to) => (p) => onProgress?.(from + (to - from) * p);
 
-    check();
-    const spectrogram = await impls.representation.analyse(clip, { options: opt.representation, onProgress: part(0, 0.5), signal });
-    const rhythm = await impls.rhythm.analyse(clip, spectrogram, { options: opt.rhythm, signal });
-    const ensemble = await resolveEnsemble(options.ensemble);
-    const axis = { hz: spectrogram.hz, kernel: (hz) => impls.representation.kernel(hz, { options: opt.representation }) };
-    const dictionary = buildDictionary(ensemble, axis);
-    check();
-    const { activations } = await impls.projector.project(spectrogram, dictionary, { options: opt.projector, onProgress: part(0.5, 0.95), signal });
-    check();
-    const candidates = impls.picker.pick(activations, dictionary, { rhythm, spectrogram, ensemble, options: opt.picker });
-    const layers = impls.layers.find(candidates, { rhythm, activations, ensemble, options: opt.layers });
-    const context = impls.objective.prepare(candidates, layers, { spectrogram, activations, dictionary, options: opt.objective });
-    const choices = impls.multiplexer.choose(candidates, { layers, objective: impls.objective, context, ensemble, options: opt.multiplexer });
+    // Each step's key covers its own choice and options and the keys of its inputs.
+    const own = (step) => JSON.stringify([options[step], opt[step]]);
+    const keys = {};
+    keys.representation = own('representation');
+    keys.rhythm = keys.representation + own('rhythm');
+    keys.dictionary = keys.representation + JSON.stringify(options.ensemble);
+    keys.projector = keys.dictionary + own('projector');
+    keys.picker = keys.projector + keys.rhythm + own('picker');
+    keys.layers = keys.picker + own('layers');
+    keys.objective = keys.layers + own('objective');
+    keys.multiplexer = keys.objective + own('multiplexer');
+    const previous = reuse && reuse.clip === clip ? reuse : null;
+    const out = {};
+    const timings = {};
+    const reused = [];
+    const stage = async (name, run) => {
+        check();
+        if (previous && previous.keys[name] === keys[name]) {
+            reused.push(name);
+            timings[name] = 0;
+            return previous.outputs[name];
+        }
+        const t0 = performance.now();
+        const value = await run();
+        timings[name] = performance.now() - t0;
+        return value;
+    };
+
+    out.representation = await stage('representation', async () => ({
+        spectrogram: await impls.representation.analyse(clip, { options: opt.representation, onProgress: part(0, 0.5), signal }),
+    }));
+    const { spectrogram } = out.representation;
+    out.rhythm = await stage('rhythm', async () => ({ rhythm: await impls.rhythm.analyse(clip, spectrogram, { options: opt.rhythm, signal }) }));
+    const { rhythm } = out.rhythm;
+    out.dictionary = await stage('dictionary', async () => {
+        const ensemble = await resolveEnsemble(options.ensemble);
+        const axis = { hz: spectrogram.hz, kernel: (hz) => impls.representation.kernel(hz, { options: opt.representation }) };
+        return { ensemble, dictionary: buildDictionary(ensemble, axis) };
+    });
+    const { ensemble, dictionary } = out.dictionary;
+    out.projector = await stage('projector', () => impls.projector.project(spectrogram, dictionary, { options: opt.projector, onProgress: part(0.5, 0.95), signal }));
+    const { activations } = out.projector;
+    out.picker = await stage('picker', async () => ({ candidates: impls.picker.pick(activations, dictionary, { rhythm, spectrogram, ensemble, options: opt.picker }) }));
+    const { candidates } = out.picker;
+    out.layers = await stage('layers', async () => ({ layers: impls.layers.find(candidates, { rhythm, activations, ensemble, options: opt.layers }) }));
+    const { layers } = out.layers;
+    out.objective = await stage('objective', async () => ({ context: impls.objective.prepare(candidates, layers, { spectrogram, activations, dictionary, options: opt.objective }) }));
+    const { context } = out.objective;
+    out.multiplexer = await stage('multiplexer', async () => ({
+        choices: impls.multiplexer.choose(candidates, { layers, objective: impls.objective, context, ensemble, options: opt.multiplexer }),
+    }));
+    const { choices } = out.multiplexer;
     const notes = toNotes(choices, ensemble);
     onProgress?.(1);
 
@@ -97,6 +141,11 @@ export async function runPipeline(clip, options, { onProgress, signal, trace = f
     stats.summary = `${stats.onsets} onsets, ${stats.candidates} candidate sounds, ${notes.length} notes kept`
         + (stats.percussive ? ` (and ${stats.percussive} percussive hits, not saved yet).` : '.');
     const result = { notes, stats };
-    if (trace) result.trace = { options, stepOptions: opt, spectrogram, rhythm, ensemble, dictionary, activations, candidates, layers, context, choices };
+    if (trace) {
+        result.trace = {
+            clip, options, stepOptions: opt, keys, outputs: out, timings, reused,
+            spectrogram, rhythm, ensemble, dictionary, activations, candidates, layers, context, choices, notes,
+        };
+    }
     return result;
 }

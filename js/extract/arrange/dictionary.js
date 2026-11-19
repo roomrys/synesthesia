@@ -1,5 +1,7 @@
 // The dictionary: one template per sound of every ensemble member. Pure.
 
+import { midiToName } from '../music.js';
+
 /**
  * Render every sound of every member with its timbre, scaled to unit length.
  * @param {import('./types.js').Member[]} members
@@ -25,4 +27,32 @@ export function buildDictionary(members, axis) {
         }
     });
     return { hz: axis.hz, columns, labels };
+}
+
+/**
+ * The spectrogram the dictionary and activations add up to: frame f is
+ * Σ_j activation[j][f] · column[j]. Returns one Float32Array per frame.
+ */
+export function reconstruct(dictionary, activations) {
+    const { columns } = dictionary;
+    const H = activations.values;
+    const frames = H[0]?.length ?? 0;
+    const bins = dictionary.hz.length;
+    const out = Array.from({ length: frames }, () => new Float32Array(bins));
+    for (let j = 0; j < columns.length; j++) {
+        const w = columns[j];
+        const h = H[j];
+        for (let f = 0; f < frames; f++) {
+            const a = h[f];
+            if (a <= 0) continue;
+            const frame = out[f];
+            for (let i = 0; i < bins; i++) frame[i] += a * w[i];
+        }
+    }
+    return out;
+}
+
+/** A short name for a sound: the note name for a pitch, or the technique. */
+export function soundName(sound) {
+    return 'midi' in sound ? midiToName(sound.midi) : sound.technique;
 }

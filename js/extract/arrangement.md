@@ -383,17 +383,31 @@ moment has a `state` from `instrument.playability.states()`.
 
 | id | Notes |
 |---|---|
-| `greedy` ✅ | At each onset, add candidates one at a time by score gained, keeping only playable combinations. Stop at `maxPerOnset` (6) or when the next would add less than `minGain` (a tenth) of what the first added. Stage 1's default. |
+| `greedy` ✅ | At each onset, add candidates one at a time by score gained, keeping only playable combinations. Stop at `maxPerOnset` (6), when the next would add less than `minGain` (a tenth) of what the first added, or when it would add less than `minShare` (2% of the frame). Pitched notes and percussive hits are chosen separately, each with its own limits. Otherwise a kick under every chord makes the chord notes look too weak to keep. Stage 1's default. On the chords-bass-and-drums test clip, some quiet top-line notes under loud drums fall below `minShare`: energy isn't importance, which is what `fair-distinct` is for. |
 | `viterbi` | Dynamic programming over the whole song. Each step's candidates are playable subsets, scored by `objective.score` minus a switching cost (so the arrangement doesn't flicker between layers) minus playability `cost` and `transition`. Exact for a per-step score. |
 | `beam` | Beam search, for objectives that don't split into steps. |
 
 ---
 
-## Debug page (`debug/arrange.html`) 📝
+## Debug page (`debug/arrange.html`) 🚧
 
 A separate page for seeing inside the pipeline. It shows far more than the
 production page should. `extract.html` only gains `arrange` in its detector
 list, and keeps its current spectrogram and harmonic-sum layers.
+
+**Built:**
+- **Audio:** test clips (a C major triad, a six-string E minor, a melody, a
+  drum hit over a held note, and chords with bass and drums) or an audio file.
+  `?preset=band&cursor=2.3` opens a test clip, with a moment picked for the
+  frame slice.
+- **Playback:** the song with the kept notes on the synth.
+- **Controls:** a box per step, with its implementation and an input for every
+  option, plus the ensemble's instrument options and timbre parameters. Each
+  box shows how long its step took, or "reused".
+- **Views 1–3.**
+
+**Not yet:** listening to the reconstruction, residual or a layer (view 7,
+needs `resynthesize`), views 4–6 and 8, and export.
 
 - **Where:** `debug/` holds pages for looking under the hood, reached by URL and
   not linked from the production pages. Other debug pages (onsets, fingering)
@@ -404,7 +418,10 @@ list, and keeps its current spectrogram and harmonic-sum layers.
   same pipeline modules, unchanged, with `trace: true`.
 - **Pipeline controls:** a dropdown per step listing the registered
   implementations, and the sliders from each one's `settings`. Changing one
-  re-runs from that step onward and keeps the earlier steps' results.
+  re-runs from that step onward and keeps the earlier steps' results. That's
+  `runPipeline`'s `reuse`: each step has a key made of its implementation, its
+  options and its inputs' keys. A step whose key hasn't changed returns its
+  earlier output.
 
 **Views.** They share one time axis (zoom, scroll and playhead move together)
 and can be shown or hidden:
@@ -414,11 +431,13 @@ and can be shown or hidden:
    stacked on the same scale, with a linear or log scale. This is the main
    comparison for stage 1.
 2. **Activations:** sound × time, with the percussive sounds in their own rows.
-   Onsets are ticks, candidates are outlines, chosen notes are filled and
-   coloured by layer.
+   Onsets are ticks, candidates are outlines, and chosen notes are filled in
+   their note colour (📝 coloured by layer once there are layers). Hovering
+   shows the activation and the candidate's numbers, and whether it was kept.
 3. **Frame slice:** click a time to see the spectrum of that frame. It shows the
-   original and the reconstruction as lines, and each active template's share
-   stacked underneath. Hover a template to highlight its partials.
+   original and the reconstruction as lines, and the strongest templates (up to
+   eight), each as its own line. The legend gives the share of the frame the
+   reconstruction explains, and each template's activation and share.
 4. **Dictionary and timbre:** every template, the profile's parameters as live
    sliders (re-projecting as they change), and the fit's loss at each
    iteration.
@@ -485,15 +504,17 @@ js/tabs/hand.js                      guitar hand costs, shared with the `path` f
 test/arrange.test.js                 contract suites for every step, and the pipeline
 ```
 
-Planned 📝:
+The debug page 🚧:
 
 ```
 debug/arrange.html                   the debug page
 js/debug/
-  arrange.js                         its wiring and controls
-  plots.js                           shared canvas plots: heatmaps on a shared
-                                     time axis, line plots, matrices
+  arrange.js                         its wiring, controls and views
+  plots.js                           shared canvas plots: a TimeView shared by every
+                                     plot, heatmaps, colour maps, axes
+  test-signals.js                    synthetic test clips (plucked chords, drums)
 css/debug.css
+test/debug-page.test.js
 ```
 
 Everything under `arrange/` is pure (no DOM), so it can move into a worker if
@@ -534,10 +555,11 @@ Built so far, except where marked 📝:
   low E without an octave error, and so on). It finds a C major triad and a
   six-string E minor chord, and a drum hit over a held note is percussive, not
   a new note. The trace has every step.
-- 📝 **Debug page:** like `page.test.js`, load it in an iframe, open a generated
-  WAV file, and check that the trace has every step and every view draws
-  without errors. `resynthesize` with a mask of all ones gives back the
-  original samples.
+- **Debug page:** like `page.test.js`, load it in an iframe. Run a test chord
+  and check every view draws, and that clicking a moment fills the frame slice
+  with the chord's notes. Change a late step's option and check the analysis
+  and projection are reused. Open a generated WAV file. 📝 `resynthesize` with
+  a mask of all ones gives back the original samples.
 
 ---
 
@@ -563,7 +585,7 @@ Built so far, except where marked 📝:
    `guitar` (sharing the `path` costs with js/tabs), `harmonic`, `nnls`,
    `onset-rise`, `none`, `energy`, `greedy`. That is stage 1, shipped as
    `arrange`.
-2. **The debug page** with the trace, pipeline controls and views 1–3
+2. 🚧 **The debug page** with the trace, pipeline controls and views 1–3 (built)
    (spectrogram and reconstruction, activations, frame slice), then listening
    (view 7).
 3. **Percussive notes:** the note format changes above, across the extractor
