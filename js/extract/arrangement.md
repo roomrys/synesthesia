@@ -269,6 +269,7 @@ can fit a profile to a recording.
 
 ```js
 render(member: Member, sound: Sound, axis: Axis): Float32Array   // axis = { hz, kernel }
+partials?(member, sound, { maxHz }): { hz, amp }[]   // a pitched sound's sine partials, for synthesis
 fit?(spectrogram, member, activations?, { options }): TimbreProfile   // 📝
 ```
 
@@ -293,7 +294,21 @@ and the shape parameters change.
 ### Building the dictionary ✅
 Not swappable. `buildDictionary(ensemble, axis)` renders every `sound()` of
 every member with its timbre, scales each template to unit length, and labels
-each column. Several members simply add
+each column. It keeps each template's scale (`scales`), so an activation can be
+turned back into a level.
+
+### Synthesis ✅
+Not swappable. `synthesize(trace, { rate, length })` in `synthesis.js` makes
+audio from the dictionary and activations alone: "a guitar playing
+everything".
+- **Pitched sounds:** additive synthesis from the timbre's `partials()`, with
+  amplitudes following the activations.
+- **Percussive sounds:** noise shaped by their templates.
+- **Levels:** a played sound projects back at about the level it was played at
+  (tested).
+- **What it's for:** the debug page, to hear and see what the projection
+  decided. It sounds organ-like rather than plucked where the activations
+  follow held notes (a voice). Several members simply add
 their columns. The projector then decides which member each part of the sound
 belongs to by timbre.
 
@@ -417,8 +432,13 @@ list, and keeps its current spectrogram and harmonic-sum layers.
   box shows how long its step took, or "reused".
 - **Views 1–3.**
 
-- **Listening (view 7):** **Guitar space** and **Residual** volume sliders sit
-  beside Song and Notes, so any mix of the four can play.
+- **Synthesised view:** the spectrogram of the synthesis (red) over the
+  original (blue). White is where they agree.
+- **Listening (view 7):** **Guitar space**, **Residual** and **Synthesised**
+  volume sliders sit beside Song and Notes, so any mix of them can play.
+  Guitar space and the residual are the recording filtered: they keep its own
+  sound, so a voice that guitar notes explain still sounds like the voice.
+  Synthesised is the templates themselves.
   - The two are made with `resynthesize` and the soft mask
     `min(1, reconstruction / original)` (`explainedMask` in `dictionary.js`),
     or one minus it, so they add up to the song.
@@ -510,7 +530,8 @@ js/extract/arrange/
   types.js                           the types above (JSDoc)
   registry.js                        every implementation, lazily loaded; loadStep
   pipeline.js                        runPipeline, stepOptions, resolveEnsemble (pure)
-  dictionary.js                      buildDictionary                     (pure)
+  dictionary.js                      buildDictionary, reconstruct, explainedMask (pure)
+  synthesis.js                       synthesize: audio from templates and activations (pure)
   representations/                   stft-log.js [multires.js, cqt.js]
   rhythm/                            flux.js
   instruments/                       guitar.js

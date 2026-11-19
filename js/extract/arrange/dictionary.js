@@ -11,6 +11,7 @@ import { midiToName } from '../music.js';
 export function buildDictionary(members, axis) {
     const columns = [];
     const labels = [];
+    const scales = [];   // what each template was divided by: activation / scale = the rendered template's level
     members.forEach((member, index) => {
         for (const sound of member.instrument.sounds(member.options)) {
             const column = Float32Array.from(member.timbre.render(member, sound, axis));
@@ -24,9 +25,10 @@ export function buildDictionary(members, axis) {
             for (let i = 0; i < column.length; i++) column[i] /= norm;
             columns.push(column);
             labels.push({ member: index, sound });
+            scales.push(norm);
         }
     });
-    return { hz: axis.hz, columns, labels };
+    return { hz: axis.hz, columns, labels, scales };
 }
 
 /**

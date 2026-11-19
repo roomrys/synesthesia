@@ -54,6 +54,7 @@ test('debug page: a test chord runs, every view draws, and the slice explains a 
         const select = doc.getElementById('presetSelect');
         const status = await runAndWait(doc, () => { select.value = 'triad'; select.dispatchEvent(new Event('change')); });
         assert(/Notes: C3 E3 G3$/.test(status), `status: ${status}`);
+        await waitFor(() => frame.contentWindow.debugPage.state.derived?.synthSpec, 15000, 'the synthesised view');
         await nextFrame(frame.contentWindow);
         for (const canvas of doc.querySelectorAll('#plots canvas')) {
             assert(canvas.width > 0 && canvas.height > 0, `${canvas.dataset.view} has no size`);
@@ -150,16 +151,21 @@ test('debug page: guitar space and the residual have volume sliders, mixed with 
             el.dispatchEvent(new Event('input'));
         };
         slide('guitarVolume', 0.7);
-        await waitFor(() => state.player.stems.length === 2, 15000, 'stems on the player');
+        await waitFor(() => state.player.stems.length === 3, 15000, 'stems on the player');
         assert(state.player.playing, 'stopped playing when the stems were added');
         assertClose(state.player.trackGains[1].gain.value, 0.7, 1e-6, 'guitar space volume:');
         assertClose(state.player.trackGains[0].gain.value, 0.8, 1e-6, 'the song keeps its volume:');
 
         const energy = (x) => x.reduce((s, v) => s + v * v, 0) / x.length;
-        const [guitar, residual] = state.player.stems;
+        const [guitar, residual, synth] = state.player.stems;
         const original = energy(state.clip.samples);
         assert(energy(guitar) > 0.5 * original, `guitar space keeps ${energy(guitar) / original} of a plucked chord`);
         assert(energy(residual) < energy(guitar), 'the residual is louder than guitar space for a plucked chord');
+        const ratio = energy(synth) / original;
+        assert(ratio > 0.25 && ratio < 4, `synthesised energy is ${ratio} of the original`);
+        slide('synthVolume', 0.5);
+        assertClose(state.player.trackGains[3].gain.value, 0.5, 1e-6, 'synthesised volume:');
+        slide('synthVolume', 0);
 
         slide('guitarVolume', 0);
         await waitFor(() => state.player.stems.length === 0, 5000, 'stems dropped when both sliders are at 0');

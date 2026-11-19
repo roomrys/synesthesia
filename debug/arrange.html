@@ -44,6 +44,7 @@
                 <label>Song <input type="range" id="songVolume" min="0" max="1" step="0.01" value="0.8"></label>
                 <label title="Only what the guitar templates explain">Guitar space <input type="range" id="guitarVolume" min="0" max="1" step="0.01" value="0"></label>
                 <label title="Only what the guitar templates don't explain">Residual <input type="range" id="residualVolume" min="0" max="1" step="0.01" value="0"></label>
+                <label title="The guitar templates themselves, played as the activations say: a guitar playing everything">Synthesised <input type="range" id="synthVolume" min="0" max="1" step="0.01" value="0"></label>
                 <label>Notes <input type="range" id="notesVolume" min="0" max="1" step="0.01" value="0.6"></label>
                 <label class="check"><input type="checkbox" id="followPlayhead" checked> Follow</label>
             </div>
@@ -80,6 +81,7 @@
                 <label class="check"><input type="checkbox" data-view="reconstruction" checked> Reconstruction</label>
                 <label class="check"><input type="checkbox" data-view="residual" checked> Residual</label>
                 <label class="check"><input type="checkbox" data-view="activations" checked> Activations</label>
+                <label class="check"><input type="checkbox" data-view="synth" checked> Synthesised</label>
                 <label class="check"><input type="checkbox" data-view="slice" checked> Frame slice</label>
                 <span class="divider"></span>
                 <label>Range <input type="range" id="rangeDb" min="20" max="120" step="5" value="70">
@@ -100,7 +102,9 @@
                 change speed.
                 <b>Residual</b>: orange is sound the templates don't explain, blue is sound they add that isn't
                 there. <b>Activations</b>: one row per template (percussive sounds at the top); white outlines are
-                candidates, filled boxes are the notes kept, blue ticks are onsets.</p>
+                candidates, filled boxes are the notes kept, blue ticks are onsets. <b>Synthesised</b>: the spectrogram
+                of the templates played as the activations say (red) over the original (blue); white is where they
+                agree.</p>
         </section>
 
         <p class="privacy">Audio stays in this page's memory and is never saved or uploaded.</p>

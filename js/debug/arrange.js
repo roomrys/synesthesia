@@ -9,6 +9,7 @@
 import { registry, loadStep, STEPS } from '../extract/arrange/registry.js';
 import { runPipeline } from '../extract/arrange/pipeline.js';
 import { reconstruct, soundName, explainedMask } from '../extract/arrange/dictionary.js';
+import { synthesize } from '../extract/arrange/synthesis.js';
 import { LAYER_RATE } from '../extract/spectrum.js';
 import arrange from '../extract/extractors/arrange.js';
 import { getConfig, loadAll, loadImpl } from '../extract/registry.js';
@@ -283,6 +284,52 @@ function images() {
     return d.images;
 }
 
+/**
+ * Audio made from the templates and activations alone (16 kHz), and its
+ * spectrogram: computed once per projection, shared while in progress.
+ */
+function synthData() {
+    const d = state.derived;
+    d.audio.synth ??= (async () => {
+        const { trace, clip } = state;
+        const samples = await synthesize(trace, { rate: LAYER_RATE, length: Math.round(clip.duration * LAYER_RATE) });
+        const representation = await loadStep('representation', trace.options.representation);
+        const spectrogram = await representation.analyse({ samples, sampleRate: LAYER_RATE, duration: clip.duration },
+            { options: trace.stepOptions.representation });
+        return { samples, spectrogram };
+    })().catch((err) => {
+        delete d.audio.synth;
+        throw err;
+    });
+    return d.audio.synth;
+}
+
+/** The synthesised spectrogram (red) over the original (blue), or null while it's being made. */
+function synthImage() {
+    const d = state.derived;
+    if (!d.synthSpec) {
+        synthData().then(({ spectrogram }) => {
+            if (state.derived !== d) return;
+            d.synthSpec = spectrogram;
+            draw();
+        }).catch((err) => setStatus($('runStatus'), `Synthesis failed: ${err?.message ?? err}`, 'error'));
+        return null;
+    }
+    if (d.synthImage && d.synthImageRange === state.rangeDb) return d.synthImage;
+    const frames = state.trace.spectrogram.frames;
+    const synth = d.synthSpec.frames;
+    const bins = state.trace.spectrogram.hz.length;
+    const range = state.rangeDb;
+    d.synthImage = plots.heatImage(frames.length, bins, (f, r) => {
+        const k = bins - 1 - r;
+        const o = plots.dbLevel(frames[f][k], d.ref, range);
+        const s = plots.dbLevel(synth[Math.min(f, synth.length - 1)][k], d.ref, range);
+        return [Math.round(255 * s), Math.round(255 * Math.min(o, s)), Math.round(255 * o)];
+    });
+    d.synthImageRange = range;
+    return d.synthImage;
+}
+
 // ----- plots -----
 
 const VIEWS = {
@@ -290,6 +337,7 @@ const VIEWS = {
     reconstruction: { title: 'Guitar space', kind: 'spec' },
     residual: { title: 'Residual', kind: 'spec' },
     activations: { title: 'Activations', kind: 'act' },
+    synth: { title: 'Synthesised', kind: 'spec' },
 };
 
 function makePlots() {
@@ -337,7 +385,16 @@ function drawPlot(name) {
     const rect = { x: GUTTER, y: 0, width: width - GUTTER, height };
     const view = state.view;
     const { spectrogram } = state.trace;
-    plots.drawHeat(ctx, images()[name], view, rect, spectrogram.hopSeconds);
+    const image = name === 'synth' ? synthImage() : images()[name];
+    if (image) {
+        plots.drawHeat(ctx, image, view, rect, spectrogram.hopSeconds);
+    } else {
+        ctx.fillStyle = '#000';
+        ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.font = '12px system-ui, sans-serif';
+        ctx.fillText('Synthesising…', rect.x + 8, rect.y + 24);
+    }
     let marks;
     if (isAct) {
         drawActivationOverlays(ctx, rect);
@@ -563,6 +620,8 @@ function hover(name, canvas, e) {
         const v = spectrogram.frames[f][k];
         const rec = state.derived.recon[f][k];
         text = `${t.toFixed(3)} s · ${hz.toFixed(1)} Hz (${midiToName(Math.round(hzToMidi(hz)))}) · original ${db(v, 1)} · guitar space ${db(rec, 1)} · residual ${db(Math.abs(v - rec), 1)}${v - rec < 0 ? ' (over)' : ''}`;
+        const synth = state.derived.synthSpec?.frames;
+        if (synth) text += ` · synthesised ${db(synth[Math.min(f, synth.length - 1)][k], 1)}`;
     } else {
         const row = Math.max(0, Math.min(state.derived.order.length - 1, Math.floor((y / r.height) * state.derived.order.length)));
         const j = state.derived.order[row];
@@ -851,7 +910,7 @@ function follow() {
 // Stems: guitar space and the residual, resynthesised from the spectrogram with a
 // soft mask and its complement (so they add up to the song), then played with
 // the song as extra channels: track 1 is guitar space, track 2 the residual.
-const STEM_SLIDERS = ['guitarVolume', 'residualVolume'];
+const STEM_SLIDERS = ['guitarVolume', 'residualVolume', 'synthVolume'];
 
 /** Guitar space and the residual at the clip's rate, computed once per projection (shared while in progress). */
 function stems() {
@@ -880,8 +939,9 @@ async function computeStems(d) {
     };
     const guitar = await toClipRate(await representation.resynthesize(clip, guitarMask, opts));
     const residual = await toClipRate(await representation.resynthesize(clip, residualMask, opts));
+    const synth = await toClipRate((await synthData()).samples);
     setStatus($('audioStatus'), '');
-    return [guitar, residual];
+    return [guitar, residual, synth];
 }
 
 /**

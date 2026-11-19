@@ -31,21 +31,30 @@ export default {
     description: 'Partials at (slightly sharp) whole multiples of the pitch, fading with height.',
     defaults,
 
-    render(member, sound, axis) {
+    /** The sine partials of a pitched sound, up to `maxHz`: [{ hz, amp }] (amp of a unit template before scaling). */
+    partials(member, sound, { maxHz = Infinity } = {}) {
+        if (!('midi' in sound)) return [];
         const p = { ...defaults, ...member.profile.params };
+        const f0 = midiToHz(sound.midi);
+        const out = [];
+        for (let k = 1; k <= p.partials; k++) {
+            const hz = k * f0 * Math.sqrt(1 + p.inharmonicity * k * k);
+            if (hz > maxHz) break;
+            out.push({ hz, amp: k ** -p.slope });
+        }
+        return out;
+    },
+
+    render(member, sound, axis) {
         const out = new Float32Array(axis.hz.length);
         if ('midi' in sound) {
-            const f0 = midiToHz(sound.midi);
-            const top = axis.hz[axis.hz.length - 1];
-            for (let k = 1; k <= p.partials; k++) {
-                const f = k * f0 * Math.sqrt(1 + p.inharmonicity * k * k);
-                if (f > top) break;
-                const amp = k ** -p.slope;
-                const shape = axis.kernel(f);
+            for (const { hz, amp } of this.partials(member, sound, { maxHz: axis.hz[axis.hz.length - 1] })) {
+                const shape = axis.kernel(hz);
                 for (let i = 0; i < out.length; i++) out[i] += amp * shape[i];
             }
             return out;
         }
+        const p = { ...defaults, ...member.profile.params };
         for (let i = 0; i < out.length; i++) {
             const hz = axis.hz[i];
             const noise = bump(hz, p.muteHz, p.muteOctaves);

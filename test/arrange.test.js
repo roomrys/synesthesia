@@ -236,6 +236,30 @@ for (const id of ids('multiplexer')) {
     });
 }
 
+// ----- Synthesis -----
+
+test('arrange synthesis: a pitch and a percussive sound project back at about the levels they were played at', async () => {
+    const { synthesize } = await import('../js/extract/arrange/synthesis.js');
+    const nnls = await loadStep('projector', 'nnls');
+    const { spectrogram: empty, ensemble, dictionary } = await setup(new Float32Array(RATE));
+    const frames = empty.frames.length;
+    const values = dictionary.columns.map(() => new Float32Array(frames));
+    const e4 = dictionary.labels.findIndex((l) => l.sound.midi === 64);
+    const mute = dictionary.labels.findIndex((l) => l.sound.technique === 'mute');
+    values[e4].fill(0.1);
+    values[mute].fill(0.1);
+    const samples = await synthesize({ dictionary, activations: { hopSeconds: empty.hopSeconds, values }, ensemble }, { rate: RATE, length: RATE });
+    const rep = await loadStep('representation', arrange.defaults.representation);
+    const spec = await rep.analyse(clipOf(samples, RATE), { options: rep.defaults });
+    const { activations } = await nnls.project(spec, dictionary, { options: { ...nnls.defaults, sparsity: 0 } });
+    const middle = (j) => { const a = activations.values[j].slice(30, 70); return a.reduce((s, v) => s + v, 0) / a.length; };
+    assertClose(middle(e4), 0.1, 0.02, 'E4:');
+    assertClose(middle(mute), 0.1, 0.03, 'mute:');
+
+    const silent = await synthesize({ dictionary, activations: { hopSeconds: empty.hopSeconds, values: values.map((v) => v.map(() => 0)) }, ensemble }, { rate: RATE, length: RATE });
+    assert(silent.every((v) => v === 0), 'no activations should give silence');
+});
+
 // ----- The pipeline -----
 
 test('arrange pipeline: step options come from prefixed keys over the defaults', () => {
