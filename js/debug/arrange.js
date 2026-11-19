@@ -14,6 +14,7 @@ import { getConfig, loadAll, loadImpl } from '../extract/registry.js';
 import { sourceButtons, sourceHint, liveError } from '../extract/sources/ui.js';
 import { Player } from '../extract/player.js';
 import { midiToHz, midiToName, hzToMidi, noteColor } from '../extract/music.js';
+import { findAudibleRange } from '../extract/dsp.js';
 import { PRESETS } from './test-signals.js';
 import * as plots from './plots.js';
 
@@ -37,9 +38,14 @@ const state = {
     controller: null,
     player: null,
     rangeDb: 70,
-    view: new plots.TimeView(),
+    view: new plots.TimeView(),   // view.cursor is the playhead
     plots: {},
+    live: null,                   // the live source listening, if any
+    crop: { start: 0, end: 0 },   // time crop: what loops and plays
+    pitchCrop: null,              // { min, max } MIDI notes kept, inclusive
+    pitchCropMoved: false,        // moved by hand, so kept when the pipeline runs again
 };
+const GRAB_PX = 6;
 window.debugPage = { state };
 
 // ----- pipeline controls -----
@@ -189,7 +195,9 @@ async function run() {
         derive(previous);
         setStatus($('runStatus'), `${stats.summary} Notes: ${notes.map((n) => midiToName(n.midi)).join(' ') || 'none'}`, 'ok');
         showTimings(trace);
-        state.player?.setNotes(notes);
+        // The pitch crop fits the notes unless it was moved by hand (as on the note extractor).
+        if (!state.pitchCropMoved || !state.pitchCrop) fitPitchCrop();
+        else setPitchCrop(state.pitchCrop.min, state.pitchCrop.max);
         $('playButton').disabled = false;
         document.body.dataset.run = 'done';
         draw();
@@ -234,7 +242,13 @@ function derive(previous) {
     for (const a of t.activations.values) for (const v of a) if (v > maxActivation) maxActivation = v;
     const order = rowOrder(t.dictionary);
     const rowOf = new Map(order.map((j, r) => [j, r]));
-    state.derived = { recon, ref, maxActivation, order, rowOf, images: null, imagesRange: null, imagesFor: null };
+    const rowOfMidi = new Map();   // the first member's pitches, for the pitch crop
+    order.forEach((j, r) => {
+        const { member, sound } = t.dictionary.labels[j];
+        if (member === 0 && 'midi' in sound) rowOfMidi.set(sound.midi, r);
+    });
+    const midis = [...rowOfMidi.keys()];   // high to low, as the rows go
+    state.derived = { recon, ref, maxActivation, order, rowOf, rowOfMidi, midis, images: null, imagesRange: null };
     if (sameProjection && prev.images && prev.imagesRange === state.rangeDb && previous.outputs.representation === t.outputs.representation) {
         state.derived.images = prev.images;
         state.derived.imagesRange = prev.imagesRange;
@@ -277,7 +291,10 @@ function makePlots() {
         const canvas = document.createElement('canvas');
         canvas.dataset.view = name;
         container.append(canvas);
-        plots.attachTimeControls(canvas, state.view, GUTTER);
+        plots.attachTimeControls(canvas, state.view, GUTTER, {
+            grab: (at) => grab(name, at),
+            onPick: (t) => setPlayhead(t),
+        });
         canvas.addEventListener('pointermove', (e) => hover(name, canvas, e));
         canvas.addEventListener('pointerleave', () => { $('readout').innerHTML = '&nbsp;'; });
         state.plots[name] = { canvas, def };
@@ -326,6 +343,8 @@ function drawPlot(name) {
     } else {
         marks = specMarks(rect);
     }
+    plots.drawCrop(ctx, view, rect, state.crop);
+    if (isAct) drawPitchCrop(ctx, rect);
     plots.drawTimeGrid(ctx, view, rect);
     drawOnsets(ctx, rect, isAct);
     plots.drawMarkers(ctx, view, rect);
@@ -368,11 +387,155 @@ function drawActivationOverlays(ctx, rect) {
         if (c.start > view.t1 || c.start + c.duration < view.t0) continue;
         const b = box(c);
         ctx.fillStyle = 'midi' in c.sound ? noteColor(c.sound.midi) : '#ffffff';
-        ctx.globalAlpha = 0.75;
+        ctx.globalAlpha = !('midi' in c.sound) || inPitchCrop(c.sound.midi) ? 0.75 : 0.2;
         ctx.fillRect(b.x, b.y, b.w, Math.max(2, b.h));
         ctx.globalAlpha = 1;
     }
     ctx.restore();
+}
+
+// ----- crops and the playhead -----
+
+const inPitchCrop = (midi) => !state.pitchCrop || (midi >= state.pitchCrop.min && midi <= state.pitchCrop.max);
+
+/** Kept notes inside the pitch crop: what plays. */
+function playedNotes() {
+    return (state.trace?.notes ?? []).filter((n) => inPitchCrop(n.midi));
+}
+
+/** The y range (top, bottom) of a pitch's row on the activations plot, or null. */
+function pitchRowY(midi, rect) {
+    const row = state.derived?.rowOfMidi.get(midi);
+    if (row === undefined) return null;
+    const rowH = rect.height / state.derived.order.length;
+    return { top: rect.y + row * rowH, bottom: rect.y + (row + 1) * rowH };
+}
+
+/** The pitch whose row is at y, clamped to the pitched rows. */
+function pitchAtY(y, rect) {
+    const { midis } = state.derived;   // high to low, as the rows go
+    let best = midis[0];
+    for (const m of midis) {
+        const r = pitchRowY(m, rect);
+        if (y >= r.top) best = m;
+    }
+    return best;
+}
+
+function drawPitchCrop(ctx, rect) {
+    const crop = state.pitchCrop;
+    if (!crop) return;
+    const top = pitchRowY(crop.max, rect);
+    const bottom = pitchRowY(crop.min, rect);
+    if (!top || !bottom) return;
+    const firstPitch = pitchRowY(state.derived.midis[0], rect).top;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.fillRect(rect.x, firstPitch, rect.width, top.top - firstPitch);
+    ctx.fillRect(rect.x, bottom.bottom, rect.width, rect.y + rect.height - bottom.bottom);
+    ctx.strokeStyle = ctx.fillStyle = '#ffd400';
+    ctx.lineWidth = 2;
+    for (const y of [top.top, bottom.bottom]) {
+        ctx.beginPath();
+        ctx.moveTo(rect.x, y);
+        ctx.lineTo(rect.x + rect.width, y);
+        ctx.stroke();
+        ctx.fillRect(rect.x + 4, y - 4, 20, 8);   // grip
+    }
+    ctx.restore();
+}
+
+/** What's under the pointer to drag on plot `name`: the playhead, a time-crop handle, or a pitch-crop handle. */
+function grab(name, at) {
+    if (!state.trace) return null;
+    const view = state.view;
+    const rect = { x: GUTTER, y: 0, width: at.width - GUTTER, height: at.height };
+    const near = (t) => t !== null && Math.abs(view.x(t, rect.x, rect.width) - at.x) <= GRAB_PX;
+    if (near(view.cursor)) {
+        return { cursor: 'ew-resize', drag: (a) => setPlayhead(a.t) };
+    }
+    if (near(state.crop.start)) {
+        return { cursor: 'col-resize', drag: (a) => setCrop(Math.min(a.t, state.crop.end - 0.1), state.crop.end) };
+    }
+    if (near(state.crop.end)) {
+        return { cursor: 'col-resize', drag: (a) => setCrop(state.crop.start, Math.max(a.t, state.crop.start + 0.1)) };
+    }
+    if (name === 'activations' && state.pitchCrop) {
+        const top = pitchRowY(state.pitchCrop.max, rect);
+        const bottom = pitchRowY(state.pitchCrop.min, rect);
+        if (top && Math.abs(at.y - top.top) <= GRAB_PX) {
+            return { cursor: 'row-resize', drag: (a) => setPitchCrop(state.pitchCrop.min, Math.max(state.pitchCrop.min, pitchAtY(a.y + 1, rect)), { moved: true }) };
+        }
+        if (bottom && Math.abs(at.y - bottom.bottom) <= GRAB_PX) {
+            return { cursor: 'row-resize', drag: (a) => setPitchCrop(Math.min(state.pitchCrop.max, pitchAtY(a.y - 1, rect)), state.pitchCrop.max, { moved: true }) };
+        }
+    }
+    return null;
+}
+
+const formatTime = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+
+/** Move the playhead (and the frame slice) to `t`, and the player with it. */
+function setPlayhead(t) {
+    const clamped = Math.max(0, Math.min(state.view.duration, t));
+    state.view.cursor = clamped;
+    state.player?.seek(clamped);
+    $('timeDisplay').textContent = formatTime(clamped);
+    draw();
+}
+
+function setCrop(start, end) {
+    const duration = state.clip?.duration ?? 0;
+    state.crop = { start: Math.max(0, start), end: Math.min(duration, end) };
+    updateLoop();
+    refreshCropUI();
+    draw();
+}
+
+function fitCropToAudio() {
+    if (!state.clip) return;
+    const range = findAudibleRange(state.clip.samples, state.clip.sampleRate);
+    if (!range) {
+        setStatus($('audioStatus'), 'The audio seems silent, so the crop was left as it is.');
+        return;
+    }
+    setCrop(range.start, range.end);
+}
+
+function setPitchCrop(min, max, { moved = false } = {}) {
+    state.pitchCrop = { min, max };
+    if (moved) state.pitchCropMoved = true;
+    state.player?.setNotes(playedNotes());
+    refreshCropUI();
+    draw();
+}
+
+function fitPitchCrop() {
+    const notes = state.trace?.notes ?? [];
+    state.pitchCropMoved = false;
+    if (!notes.length) {
+        state.pitchCrop = null;
+        state.player?.setNotes([]);
+        refreshCropUI();
+        draw();
+        return;
+    }
+    setPitchCrop(Math.min(...notes.map((n) => n.midi)), Math.max(...notes.map((n) => n.midi)));
+}
+
+function refreshCropUI() {
+    const has = Boolean(state.clip);
+    for (const id of ['cropStartButton', 'cropEndButton', 'cropFitButton', 'cropResetButton']) $(id).disabled = !has;
+    $('cropDisplay').textContent = has
+        ? `${formatTime(state.crop.start)} – ${formatTime(state.crop.end)} (${(state.crop.end - state.crop.start).toFixed(1)} s)` : '–';
+    const notes = state.trace?.notes ?? [];
+    $('pitchFitButton').disabled = !notes.length;
+    $('pitchDisplay').textContent = state.pitchCrop && notes.length
+        ? `${midiToName(state.pitchCrop.min)} – ${midiToName(state.pitchCrop.max)} (${playedNotes().length} of ${notes.length})` : '–';
+}
+
+function updateLoop() {
+    state.player?.setLoop($('loopToggle').checked ? { ...state.crop } : null);
 }
 
 function hover(name, canvas, e) {
@@ -588,6 +751,9 @@ function clearClip() {
     state.clip = null;
     state.trace = null;
     state.derived = null;
+    state.pitchCrop = null;
+    state.pitchCropMoved = false;
+    refreshCropUI();
     $('clipRow').hidden = true;
     $('runButton').disabled = true;
     $('playButton').disabled = true;
@@ -601,15 +767,21 @@ function clearClip() {
 // ----- audio and playback -----
 
 async function setClip(clip) {
+    state.player?.pause();
     state.clip = clip;
     state.trace = null;
     state.derived = null;
-    state.view.cursor = null;
+    state.pitchCrop = null;
+    state.pitchCropMoved = false;
     state.view.reset(clip.duration);
     $('clipInfo').textContent = `${clip.label ?? 'Clip'} · ${clip.duration.toFixed(2)} s · ${clip.sampleRate} Hz`;
     $('clipRow').hidden = false;
     $('runButton').disabled = false;
     state.player?.setClip(clip);
+    // The time crop starts fitted to the audio, as on the note extractor.
+    state.crop = { start: 0, end: clip.duration };
+    fitCropToAudio();
+    setPlayhead(0);
     await run();
 }
 
@@ -619,10 +791,17 @@ async function ensurePlayer() {
     await player.init();
     player.setSongVolume(Number($('songVolume').value));
     player.setNotesVolume(Number($('notesVolume').value));
-    player.onStop = () => { $('playButton').textContent = '▶ Play'; };
+    player.onStop = () => {
+        $('playButton').textContent = '▶ Play';
+        state.view.cursor = player.position;
+        draw();
+    };
     player.setClip(state.clip);
-    player.setNotes(state.trace?.notes ?? []);
+    player.setNotes(playedNotes());
+    player.setRate(Number($('speed').value));
+    player.position = state.view.cursor ?? 0;
     state.player = player;
+    updateLoop();
     return player;
 }
 
@@ -633,9 +812,13 @@ async function togglePlay() {
         if (player.playing) {
             player.pause();
             $('playButton').textContent = '▶ Play';
+            state.view.cursor = player.position;
+            draw();
             return;
         }
-        await player.play(state.view.cursor ?? player.position);
+        let from = state.view.cursor ?? 0;
+        if ($('loopToggle').checked && (from < state.crop.start || from >= state.crop.end - 0.05)) from = state.crop.start;
+        await player.play(from);
         $('playButton').textContent = '❚❚ Pause';
         requestAnimationFrame(follow);
     } catch (err) {
@@ -643,14 +826,24 @@ async function togglePlay() {
     }
 }
 
+/** While playing: move the playhead with the song, and keep it on screen if Follow is on. */
 function follow() {
     const player = state.player;
+    if (!player?.playing) return;
     const t = player.currentTime;
-    state.view.playhead = t;
-    $('timeDisplay').textContent = `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
-    if (player.playing && (t > state.view.t1 || t < state.view.t0)) state.view.panBy(t - state.view.t0 - 0.1 * (state.view.t1 - state.view.t0));
+    state.view.cursor = t;
+    $('timeDisplay').textContent = formatTime(t);
+    const span = state.view.t1 - state.view.t0;
+    if ($('followPlayhead').checked && (t > state.view.t1 || t < state.view.t0)) state.view.panBy(t - state.view.t0 - 0.1 * span);
     else draw();
-    if (player.playing) requestAnimationFrame(follow);
+    requestAnimationFrame(follow);
+}
+
+function setSpeed(rate) {
+    const r = Math.max(0.25, Math.min(1.5, Math.round(rate * 20) / 20));
+    $('speed').value = r;
+    $('speedDisplay').textContent = `${Math.round(r * 100)}%`;
+    state.player?.setRate(r);
 }
 
 // ----- wiring -----
@@ -680,30 +873,44 @@ async function init() {
     });
     $('fitButton').addEventListener('click', () => state.view.reset(state.view.duration));
     for (const box of document.querySelectorAll('input[data-view]')) box.addEventListener('change', draw);
+    $('loopToggle').addEventListener('change', updateLoop);
+    $('speed').addEventListener('input', () => setSpeed(Number($('speed').value)));
+    $('cropStartButton').addEventListener('click', () => setCrop(Math.min(state.view.cursor ?? 0, state.crop.end - 0.1), state.crop.end));
+    $('cropEndButton').addEventListener('click', () => setCrop(state.crop.start, Math.max(state.view.cursor ?? 0, state.crop.start + 0.1)));
+    $('cropFitButton').addEventListener('click', fitCropToAudio);
+    $('cropResetButton').addEventListener('click', () => setCrop(0, state.clip?.duration ?? 0));
+    $('pitchFitButton').addEventListener('click', fitPitchCrop);
     document.addEventListener('keydown', (e) => {
-        if (e.code === 'Space' && !['INPUT', 'SELECT', 'BUTTON'].includes(document.activeElement?.tagName)) {
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        const typing = ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName) && document.activeElement.type !== 'checkbox' && document.activeElement.type !== 'range';
+        if (typing || !state.clip) return;
+        if (e.key === ' ' && document.activeElement?.tagName === 'BUTTON') return;   // the button handles it
+        if (e.key === ' ') {
             e.preventDefault();
             togglePlay();
+        } else if (e.key === '[') {
+            $('cropStartButton').click();
+        } else if (e.key === ']') {
+            $('cropEndButton').click();
+        } else if (e.key === 'l') {
+            $('loopToggle').checked = !$('loopToggle').checked;
+            updateLoop();
+        } else if (e.key === '-' || e.key === '=') {
+            setSpeed(Number($('speed').value) + (e.key === '-' ? -0.05 : 0.05));
         }
     });
     window.addEventListener('resize', draw);
-    let lastCursor = null;
-    state.view.onChange(() => {
-        const cursor = state.view.cursor;
-        if (cursor !== lastCursor && cursor !== null && state.player && !state.player.playing) state.player.seek(cursor);
-        lastCursor = cursor;
-        draw();
-    });
+    state.view.onChange(draw);
     makePlots();
     await buildSteps();
     document.body.dataset.ready = 'true';
-    // ?preset=band opens a test clip straight away; &cursor=1.2 picks a moment for the slice.
+    // ?preset=band opens a test clip straight away; &cursor=1.2 puts the playhead (and the slice) there.
     const params = new URLSearchParams(location.search);
     const preset = params.get('preset');
     if (PRESETS[preset]) {
         $('presetSelect').value = preset;
         await setClip(PRESETS[preset].make());
-        if (params.has('cursor')) state.view.setCursor(Number(params.get('cursor')));
+        if (params.has('cursor')) setPlayhead(Number(params.get('cursor')));
     }
 }
 

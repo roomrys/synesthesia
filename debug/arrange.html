@@ -38,8 +38,22 @@
             <div class="row transport">
                 <button id="playButton" disabled title="Space">▶ Play</button>
                 <span class="time" id="timeDisplay">0:00.0</span>
+                <label class="check" title="L"><input type="checkbox" id="loopToggle"> Loop crop</label>
+                <label title="- and =">Speed <input type="range" id="speed" min="0.25" max="1.5" step="0.05" value="1">
+                    <output id="speedDisplay" class="time">100%</output></label>
                 <label>Song <input type="range" id="songVolume" min="0" max="1" step="0.01" value="0.8"></label>
                 <label>Notes <input type="range" id="notesVolume" min="0" max="1" step="0.01" value="0.6"></label>
+                <label class="check"><input type="checkbox" id="followPlayhead" checked> Follow</label>
+            </div>
+            <div class="row">
+                <span>Time <span class="time" id="cropDisplay">–</span></span>
+                <button id="cropStartButton" disabled title="[">Start here</button>
+                <button id="cropEndButton" disabled title="]">End here</button>
+                <button id="cropFitButton" disabled title="Crop to where the audio starts and ends">Fit to audio</button>
+                <button id="cropResetButton" disabled title="The whole clip">Reset</button>
+                <span class="divider"></span>
+                <span>Notes <span class="time" id="pitchDisplay">–</span></span>
+                <button id="pitchFitButton" disabled>Fit to notes</button>
             </div>
             <p class="status" id="audioStatus" role="status"></p>
         </section>
@@ -76,7 +90,12 @@
                 <canvas id="sliceCanvas"></canvas>
                 <div class="legend" id="sliceLegend"></div>
             </div>
-            <p class="hint">Scroll to zoom, drag to pan, click to look at one moment in the frame slice.
+            <p class="hint">Scroll to zoom, drag to pan, click to move the playhead (the frame slice shows that
+                moment); drag the playhead to scrub. Drag the yellow handles to crop: the vertical ones set the time,
+                the horizontal ones on the activations set the lowest and highest notes kept (notes outside are
+                dimmed and not played). <kbd>[</kbd> and <kbd>]</kbd> set the time crop at the playhead,
+                <kbd>Space</kbd> plays and pauses, <kbd>L</kbd> toggles looping, <kbd>-</kbd> and <kbd>=</kbd>
+                change speed.
                 <b>Residual</b>: orange is sound the templates don't explain, blue is sound they add that isn't
                 there. <b>Activations</b>: one row per template (percussive sounds at the top); white outlines are
                 candidates, filled boxes are the notes kept, blue ticks are onsets.</p>

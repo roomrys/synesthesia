@@ -75,6 +75,64 @@ test('debug page: a test chord runs, every view draws, and the slice explains a 
     }
 });
 
+test('debug page: crops and a draggable playhead, as on the note extractor', async () => {
+    const { frame, doc } = await loadPage();
+    const win = frame.contentWindow;
+    try {
+        const select = doc.getElementById('presetSelect');
+        await runAndWait(doc, () => { select.value = 'triad'; select.dispatchEvent(new Event('change')); });
+        await nextFrame(win);
+        const { state } = win.debugPage;
+        // The time crop starts fitted to the audio (the chord starts at 0.2 s; 50 ms padding).
+        assert(Math.abs(state.crop.start - 0.15) < 0.03, `crop start ${state.crop.start}`);
+        assertEqual(doc.getElementById('pitchDisplay').textContent, 'C3 – G3 (3 of 3)', 'pitch crop:');
+
+        const canvas = doc.querySelector('canvas[data-view="original"]');
+        const r = canvas.getBoundingClientRect();
+        const xOf = (t) => r.left + 48 + ((t - state.view.t0) / (state.view.t1 - state.view.t0)) * (r.width - 48);
+        const drag = (fromT, toT, y = r.top + 40) => {
+            const ev = (type, t) => new win.PointerEvent(type, { clientX: xOf(t), clientY: y, pointerId: 1, bubbles: true });
+            canvas.dispatchEvent(ev('pointerdown', fromT));
+            canvas.dispatchEvent(ev('pointermove', (fromT + toT) / 2));
+            canvas.dispatchEvent(ev('pointermove', toT));
+            canvas.dispatchEvent(ev('pointerup', toT));
+        };
+
+        // Drag the playhead (at 0) to 1 s: it moves, and the view doesn't pan.
+        const before = [state.view.t0, state.view.t1].join();
+        drag(0, 1);
+        assert(Math.abs(state.view.cursor - 1) < 0.02, `playhead ${state.view.cursor}`);
+        assertEqual([state.view.t0, state.view.t1].join(), before, 'view panned:');
+        assertEqual(doc.getElementById('timeDisplay').textContent, '0:01.0');
+
+        // Drag the end of the time crop in to 1.5 s.
+        drag(state.crop.end, 1.5);
+        assert(Math.abs(state.crop.end - 1.5) < 0.02, `crop end ${state.crop.end}`);
+
+        // [ sets the crop start at the playhead; Reset brings back the whole clip.
+        doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: '[', bubbles: true }));
+        assert(Math.abs(state.crop.start - 1) < 0.02, `crop start after [: ${state.crop.start}`);
+        doc.getElementById('cropResetButton').click();
+        assertEqual(state.crop.start, 0, 'reset start:');
+
+        // Dragging the pitch crop's top handle down from G3 to E3 leaves two notes to play.
+        const act = doc.querySelector('canvas[data-view="activations"]');
+        const ar = act.getBoundingClientRect();
+        const rowH = ar.height / state.derived.order.length;
+        const rowTop = (midi) => ar.top + state.derived.rowOfMidi.get(midi) * rowH;
+        const x = ar.left + 48 + (ar.width - 48) * 0.6;
+        const ev = (type, y) => new win.PointerEvent(type, { clientX: x, clientY: y, pointerId: 2, bubbles: true });
+        act.dispatchEvent(ev('pointerdown', rowTop(55)));
+        act.dispatchEvent(ev('pointermove', rowTop(52) + rowH / 2));
+        act.dispatchEvent(ev('pointerup', rowTop(52) + rowH / 2));
+        assertEqual(doc.getElementById('pitchDisplay').textContent, 'C3 – E3 (2 of 3)', 'after dragging the top down:');
+        doc.getElementById('pitchFitButton').click();
+        assertEqual(doc.getElementById('pitchDisplay').textContent, 'C3 – G3 (3 of 3)', 'fit to notes:');
+    } finally {
+        frame.remove();
+    }
+});
+
 test('debug page: changing a late step reuses the analysis; an audio file runs too', async () => {
     const { frame, doc } = await loadPage();
     try {

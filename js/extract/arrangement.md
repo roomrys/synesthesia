@@ -403,7 +403,15 @@ list, and keeps its current spectrogram and harmonic-sum layers.
   drums. **Clear audio** drops the clip and everything computed from it.
   `?preset=band&cursor=2.3` opens a test clip, with a moment picked for the
   frame slice.
-- **Playback:** the song with the kept notes on the synth.
+- **Playback and crops, as on `extract.html`:** the song with the kept notes on
+  the synth, with Loop crop, Speed, Follow and the volumes.
+  - **Time crop:** yellow handles on every plot, plus Start/End here (`[` `]`),
+    Fit to audio and Reset. It starts fitted to the audio and sets what loops.
+  - **Pitch crop:** handles on the activations, plus Fit to notes. Notes outside
+    it are dimmed and not played, and it fits the notes after each run unless
+    you've moved it.
+  - **Playhead:** click to move it, or drag its grip to scrub. The frame slice
+    shows the moment under it.
 - **Controls:** a box per step, with its implementation and an input for every
   option, plus the ensemble's instrument options and timbre parameters. Each
   box shows how long its step took, or "reused".

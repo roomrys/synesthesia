@@ -58,8 +58,7 @@ export class TimeView {
         this.duration = 1;
         this.t0 = 0;
         this.t1 = 1;
-        this.cursor = null;
-        this.playhead = null;
+        this.cursor = null;       // the playhead
         this.listeners = new Set();
     }
 
@@ -103,42 +102,82 @@ export class TimeView {
     time(x, left, width) { return this.t0 + ((x - left) / width) * (this.t1 - this.t0); }
 }
 
-/** Scroll to zoom, drag to pan, click to set the cursor, on any plot canvas. */
-export function attachTimeControls(canvas, view, plotLeft) {
+/**
+ * Scroll to zoom, drag to pan, click to pick a time, on any plot canvas.
+ *
+ * `grab(at)` lets the page offer something to drag instead of panning: it gets
+ * { t, x, y, width, height } (CSS pixels within the canvas, t = time under the
+ * pointer) and returns null or { cursor, drag(at), end?() }. `onPick(t)` is
+ * called for a click that didn't drag.
+ */
+export function attachTimeControls(canvas, view, plotLeft, { grab = () => null, onPick = () => {} } = {}) {
     let drag = null;
-    const area = () => {
+    const at = (e) => {
         const r = canvas.getBoundingClientRect();
-        return { left: r.left + plotLeft, width: r.width - plotLeft };
+        const x = e.clientX - r.left;
+        return { x, y: e.clientY - r.top, width: r.width, height: r.height, t: view.time(x, plotLeft, r.width - plotLeft) };
     };
     canvas.addEventListener('wheel', (e) => {
         e.preventDefault();
-        const a = area();
-        if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-            view.panBy((e.deltaX / a.width) * (view.t1 - view.t0));
-        } else {
-            view.zoomAt(view.time(e.clientX, a.left, a.width), Math.exp(e.deltaY * 0.002));
-        }
+        const a = at(e);
+        const width = a.width - plotLeft;
+        if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) view.panBy((e.deltaX / width) * (view.t1 - view.t0));
+        else view.zoomAt(a.t, Math.exp(e.deltaY * 0.002));
     }, { passive: false });
     canvas.addEventListener('pointerdown', (e) => {
-        drag = { x: e.clientX, moved: false };
+        const a = at(e);
+        drag = { x: e.clientX, moved: false, handle: a.x >= plotLeft ? grab(a) : null };
         canvas.setPointerCapture(e.pointerId);
     });
     canvas.addEventListener('pointermove', (e) => {
-        if (!drag) return;
+        const a = at(e);
+        if (!drag) {
+            canvas.style.cursor = (a.x >= plotLeft && grab(a)?.cursor) || 'default';
+            return;
+        }
+        if (drag.handle) {
+            drag.handle.drag(a);
+            return;
+        }
         const dx = e.clientX - drag.x;
         if (Math.abs(dx) > 3) drag.moved = true;
         if (!drag.moved) return;
-        const a = area();
-        view.panBy((-dx / a.width) * (view.t1 - view.t0));
+        view.panBy((-dx / (a.width - plotLeft)) * (view.t1 - view.t0));
         drag.x = e.clientX;
     });
-    canvas.addEventListener('pointerup', (e) => {
-        if (drag && !drag.moved) {
-            const a = area();
-            if (e.clientX >= a.left) view.setCursor(view.time(e.clientX, a.left, a.width));
+    const finish = (e) => {
+        if (!drag) return;
+        if (drag.handle) drag.handle.end?.();
+        else if (!drag.moved) {
+            const a = at(e);
+            if (a.x >= plotLeft) onPick(a.t);
         }
         drag = null;
-    });
+    };
+    canvas.addEventListener('pointerup', finish);
+    canvas.addEventListener('pointercancel', () => { drag = null; });
+}
+
+/** Shade outside the time crop and draw its handles (yellow, as on the note extractor). */
+export function drawCrop(ctx, view, rect, crop) {
+    if (!crop) return;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    const x0 = view.x(crop.start, rect.x, rect.width);
+    const x1 = view.x(crop.end, rect.x, rect.width);
+    if (x0 > rect.x) ctx.fillRect(rect.x, rect.y, Math.min(x0, rect.x + rect.width) - rect.x, rect.height);
+    if (x1 < rect.x + rect.width) ctx.fillRect(Math.max(x1, rect.x), rect.y, rect.x + rect.width - Math.max(x1, rect.x), rect.height);
+    ctx.fillStyle = ctx.strokeStyle = '#ffd400';
+    ctx.lineWidth = 2;
+    for (const x of [x0, x1]) {
+        if (x < rect.x - 1 || x > rect.x + rect.width + 1) continue;
+        ctx.beginPath();
+        ctx.moveTo(x, rect.y);
+        ctx.lineTo(x, rect.y + rect.height);
+        ctx.stroke();
+        ctx.fillRect(x - 4, rect.y + rect.height / 2 - 10, 8, 20);   // grip
+    }
+    ctx.restore();
 }
 
 /** Size a canvas to its CSS box at the device pixel ratio; returns a context scaled to CSS pixels. */
@@ -191,21 +230,23 @@ export function drawTimeGrid(ctx, view, rect, { labels = true } = {}) {
     ctx.restore();
 }
 
-/** The cursor (dashed) and playhead (solid) lines. */
+/** The playhead (`view.cursor`): a white line with a grip at the top, to drag. */
 export function drawMarkers(ctx, view, rect) {
+    const t = view.cursor;
+    if (t === null || t < view.t0 || t > view.t1) return;
+    const x = view.x(t, rect.x, rect.width);
     ctx.save();
-    const line = (t, style, dash) => {
-        if (t === null || t < view.t0 || t > view.t1) return;
-        const x = view.x(t, rect.x, rect.width);
-        ctx.strokeStyle = style;
-        ctx.setLineDash(dash);
-        ctx.beginPath();
-        ctx.moveTo(x, rect.y);
-        ctx.lineTo(x, rect.y + rect.height);
-        ctx.stroke();
-    };
-    line(view.cursor, 'rgba(120, 220, 255, 0.9)', [4, 3]);
-    line(view.playhead, 'rgba(255, 255, 255, 0.95)', []);
+    ctx.strokeStyle = ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, rect.y);
+    ctx.lineTo(x, rect.y + rect.height);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x - 6, rect.y);
+    ctx.lineTo(x + 6, rect.y);
+    ctx.lineTo(x, rect.y + 8);
+    ctx.fill();
     ctx.restore();
 }
 
