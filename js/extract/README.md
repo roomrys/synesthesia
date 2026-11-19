@@ -38,7 +38,11 @@ Status markers: ✅ built · 🚧 in progress · 📝 planned
    It can **loop** the time crop and change **speed** (25–150%) without changing
    pitch. For that, the song plays through an `<audio>` element fed from a WAV
    blob built in memory from the clip, using the browser's pitch-preserving
-   playback. The blob is released when the clip is cleared or replaced.
+   playback. The blob is released when the clip is cleared or replaced. Other
+   versions of the song can play alongside it as stems (`setStems`,
+   `setTrackVolume`). They're extra channels of the same WAV, so they stay in
+   step at any speed. The debug page uses them for guitar space and the
+   residual.
 4. The **Timeline** draws the waveform, the notes (in the fretboard's note
    colours) and the playhead. It has two crops: vertical handles set the
    **time** range, and horizontal handles set the **pitch** range (lowest and
