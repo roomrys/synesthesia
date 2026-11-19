@@ -32,10 +32,13 @@ function readAxis(column, axisHz, hz) {
 
 /**
  * @param {{ dictionary, activations, ensemble }} trace  From runPipeline.
- * @param {{ rate?: number, length: number, floor?: number, seed?: number, signal?: AbortSignal }} options
+ * @param {{ rate?: number, length: number, pitched?: boolean, percussive?: boolean, floor?: number, seed?: number, signal?: AbortSignal }} options
+ *   `pitched` / `percussive` choose which sounds to include (both by default).
  * @returns {Promise<Float32Array>} `length` samples at `rate`
  */
-export async function synthesize({ dictionary, activations, ensemble }, { rate = 16000, length, floor = 1e-5, seed = 1, signal } = {}) {
+export async function synthesize({ dictionary, activations, ensemble }, {
+    rate = 16000, length, pitched = true, percussive: withPercussive = true, floor = 1e-5, seed = 1, signal,
+} = {}) {
     const out = new Float32Array(length);
     const H = activations.values;
     const frames = H[0]?.length ?? 0;
@@ -47,7 +50,7 @@ export async function synthesize({ dictionary, activations, ensemble }, { rate =
     const tick = () => new Promise((r) => setTimeout(r));
 
     // Pitched: one oscillator per partial, amplitude following the activation.
-    for (let j = 0; j < H.length; j++) {
+    for (let j = 0; j < H.length && pitched; j++) {
         const { member, sound } = dictionary.labels[j];
         if (!('midi' in sound)) continue;
         const a = H[j];
@@ -85,7 +88,7 @@ export async function synthesize({ dictionary, activations, ensemble }, { rate =
     }
 
     // Percussive: shaped noise, short frames with random phase, overlap-added.
-    const percussive = dictionary.labels.map((l, j) => (!('midi' in l.sound) ? j : -1)).filter((j) => j >= 0)
+    const percussive = !withPercussive ? [] : dictionary.labels.map((l, j) => (!('midi' in l.sound) ? j : -1)).filter((j) => j >= 0)
         .filter((j) => H[j].some((v) => v >= floor));
     if (percussive.length) {
         const n = NOISE_SIZE;

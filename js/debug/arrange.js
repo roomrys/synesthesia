@@ -285,18 +285,18 @@ function images() {
 }
 
 /**
- * Audio made from the templates and activations alone (16 kHz), and its
- * spectrogram: computed once per projection, shared while in progress.
+ * Audio made from the templates and activations alone (16 kHz): the notes
+ * (pitched templates) and the drums (percussive ones) separately. Computed
+ * once per projection, shared while in progress.
  */
 function synthData() {
     const d = state.derived;
     d.audio.synth ??= (async () => {
         const { trace, clip } = state;
-        const samples = await synthesize(trace, { rate: LAYER_RATE, length: Math.round(clip.duration * LAYER_RATE) });
-        const representation = await loadStep('representation', trace.options.representation);
-        const spectrogram = await representation.analyse({ samples, sampleRate: LAYER_RATE, duration: clip.duration },
-            { options: trace.stepOptions.representation });
-        return { samples, spectrogram };
+        const length = Math.round(clip.duration * LAYER_RATE);
+        const notes = await synthesize(trace, { rate: LAYER_RATE, length, percussive: false });
+        const drums = await synthesize(trace, { rate: LAYER_RATE, length, pitched: false });
+        return { notes, drums };
     })().catch((err) => {
         delete d.audio.synth;
         throw err;
@@ -304,12 +304,35 @@ function synthData() {
     return d.audio.synth;
 }
 
+/** The spectrogram of the synthesis for the view: notes, drums, or both. Cached per choice. */
+function synthSpectrogram(mode) {
+    const d = state.derived;
+    d.audio.synthSpecs ??= {};
+    d.audio.synthSpecs[mode] ??= (async () => {
+        const { notes, drums } = await synthData();
+        const samples = mode === 'notes' ? notes : mode === 'drums' ? drums : notes.map((v, i) => v + drums[i]);
+        const { trace, clip } = state;
+        const representation = await loadStep('representation', trace.options.representation);
+        return representation.analyse({ samples, sampleRate: LAYER_RATE, duration: clip.duration }, { options: trace.stepOptions.representation });
+    })().catch((err) => {
+        delete d.audio.synthSpecs[mode];
+        throw err;
+    });
+    return d.audio.synthSpecs[mode];
+}
+
 /** The synthesised spectrogram (red) over the original (blue), or null while it's being made. */
 function synthImage() {
     const d = state.derived;
+    const mode = $('synthViewSelect').value;
+    if (d.synthMode !== mode) {
+        d.synthSpec = null;
+        d.synthImage = null;
+        d.synthMode = mode;
+    }
     if (!d.synthSpec) {
-        synthData().then(({ spectrogram }) => {
-            if (state.derived !== d) return;
+        synthSpectrogram(mode).then((spectrogram) => {
+            if (state.derived !== d || d.synthMode !== mode) return;
             d.synthSpec = spectrogram;
             draw();
         }).catch((err) => setStatus($('runStatus'), `Synthesis failed: ${err?.message ?? err}`, 'error'));
@@ -910,7 +933,7 @@ function follow() {
 // Stems: guitar space and the residual, resynthesised from the spectrogram with a
 // soft mask and its complement (so they add up to the song), then played with
 // the song as extra channels: track 1 is guitar space, track 2 the residual.
-const STEM_SLIDERS = ['guitarVolume', 'residualVolume', 'synthVolume'];
+const STEM_SLIDERS = ['guitarVolume', 'residualVolume', 'synthNotesVolume', 'synthDrumsVolume'];
 
 /** Guitar space and the residual at the clip's rate, computed once per projection (shared while in progress). */
 function stems() {
@@ -939,9 +962,11 @@ async function computeStems(d) {
     };
     const guitar = await toClipRate(await representation.resynthesize(clip, guitarMask, opts));
     const residual = await toClipRate(await representation.resynthesize(clip, residualMask, opts));
-    const synth = await toClipRate((await synthData()).samples);
+    const synth = await synthData();
+    const notes = await toClipRate(synth.notes);
+    const drums = await toClipRate(synth.drums);
     setStatus($('audioStatus'), '');
-    return [guitar, residual, synth];
+    return [guitar, residual, notes, drums];
 }
 
 /**
@@ -997,6 +1022,7 @@ async function init() {
     $('fitButton').addEventListener('click', () => state.view.reset(state.view.duration));
     for (const box of document.querySelectorAll('input[data-view]')) box.addEventListener('change', draw);
     $('loopToggle').addEventListener('change', updateLoop);
+    $('synthViewSelect').addEventListener('change', draw);
     STEM_SLIDERS.forEach((id, i) => $(id).addEventListener('input', () => {
         state.player?.setTrackVolume(i + 1, Number($(id).value));
         updateStems();

@@ -16,7 +16,7 @@ import { encodeWav } from './dsp.js';
 
 const LOOKAHEAD = 0.2;   // seconds of real time scheduled ahead
 const TICK_MS = 25;
-const MAX_TRACKS = 4;    // the song plus up to three stems
+const MAX_TRACKS = 6;    // the song plus up to five stems
 
 export class Player {
     /** @param {{create: Function}} voiceImpl  A Voice implementation. */
@@ -73,7 +73,7 @@ export class Player {
     }
 
     /**
-     * Play other versions of the song alongside it (up to three), each at the
+     * Play other versions of the song alongside it (up to five), each at the
      * clip's sample rate (padded or cut to its length). Their volumes start at 0;
      * see setTrackVolume. Keeps the position, and keeps playing if it was.
      */

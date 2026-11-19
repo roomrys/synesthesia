@@ -44,7 +44,8 @@
                 <label>Song <input type="range" id="songVolume" min="0" max="1" step="0.01" value="0.8"></label>
                 <label title="Only what the guitar templates explain">Guitar space <input type="range" id="guitarVolume" min="0" max="1" step="0.01" value="0"></label>
                 <label title="Only what the guitar templates don't explain">Residual <input type="range" id="residualVolume" min="0" max="1" step="0.01" value="0"></label>
-                <label title="The guitar templates themselves, played as the activations say: a guitar playing everything">Synthesised <input type="range" id="synthVolume" min="0" max="1" step="0.01" value="0"></label>
+                <label title="Every pitch in guitar space, played with the guitar templates as the activations say">Synth notes <input type="range" id="synthNotesVolume" min="0" max="1" step="0.01" value="0"></label>
+                <label title="The percussive templates (mute, slap, tap), played as the activations say">Synth drums <input type="range" id="synthDrumsVolume" min="0" max="1" step="0.01" value="0"></label>
                 <label>Notes <input type="range" id="notesVolume" min="0" max="1" step="0.01" value="0.6"></label>
                 <label class="check"><input type="checkbox" id="followPlayhead" checked> Follow</label>
             </div>
@@ -82,6 +83,11 @@
                 <label class="check"><input type="checkbox" data-view="residual" checked> Residual</label>
                 <label class="check"><input type="checkbox" data-view="activations" checked> Activations</label>
                 <label class="check"><input type="checkbox" data-view="synth" checked> Synthesised</label>
+                <select id="synthViewSelect" title="What the synthesised view shows">
+                    <option value="notes">notes</option>
+                    <option value="all">notes and drums</option>
+                    <option value="drums">drums</option>
+                </select>
                 <label class="check"><input type="checkbox" data-view="slice" checked> Frame slice</label>
                 <span class="divider"></span>
                 <label>Range <input type="range" id="rangeDb" min="20" max="120" step="5" value="70">

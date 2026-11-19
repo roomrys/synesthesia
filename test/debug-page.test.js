@@ -151,21 +151,26 @@ test('debug page: guitar space and the residual have volume sliders, mixed with 
             el.dispatchEvent(new Event('input'));
         };
         slide('guitarVolume', 0.7);
-        await waitFor(() => state.player.stems.length === 3, 15000, 'stems on the player');
+        await waitFor(() => state.player.stems.length === 4, 15000, 'stems on the player');
         assert(state.player.playing, 'stopped playing when the stems were added');
         assertClose(state.player.trackGains[1].gain.value, 0.7, 1e-6, 'guitar space volume:');
         assertClose(state.player.trackGains[0].gain.value, 0.8, 1e-6, 'the song keeps its volume:');
 
         const energy = (x) => x.reduce((s, v) => s + v * v, 0) / x.length;
-        const [guitar, residual, synth] = state.player.stems;
+        const [guitar, residual, notes, drums] = state.player.stems;
         const original = energy(state.clip.samples);
         assert(energy(guitar) > 0.5 * original, `guitar space keeps ${energy(guitar) / original} of a plucked chord`);
         assert(energy(residual) < energy(guitar), 'the residual is louder than guitar space for a plucked chord');
-        const ratio = energy(synth) / original;
-        assert(ratio > 0.25 && ratio < 4, `synthesised energy is ${ratio} of the original`);
-        slide('synthVolume', 0.5);
-        assertClose(state.player.trackGains[3].gain.value, 0.5, 1e-6, 'synthesised volume:');
-        slide('synthVolume', 0);
+        // A plucked chord with no drums: the synthesis is nearly all notes.
+        const ratio = energy(notes) / original;
+        assert(ratio > 0.25 && ratio < 4, `synthesised notes have ${ratio} of the original's energy`);
+        assert(energy(drums) < 0.2 * energy(notes), `synthesised drums ${energy(drums)} vs notes ${energy(notes)}`);
+        slide('synthNotesVolume', 0.5);
+        assertClose(state.player.trackGains[3].gain.value, 0.5, 1e-6, 'synth notes volume:');
+        slide('synthDrumsVolume', 0.3);
+        assertClose(state.player.trackGains[4].gain.value, 0.3, 1e-6, 'synth drums volume:');
+        slide('synthNotesVolume', 0);
+        slide('synthDrumsVolume', 0);
 
         slide('guitarVolume', 0);
         await waitFor(() => state.player.stems.length === 0, 5000, 'stems dropped when both sliders are at 0');

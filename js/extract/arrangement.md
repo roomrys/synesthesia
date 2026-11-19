@@ -433,12 +433,23 @@ list, and keeps its current spectrogram and harmonic-sum layers.
 - **Views 1–3.**
 
 - **Synthesised view:** the spectrogram of the synthesis (red) over the
-  original (blue). White is where they agree.
-- **Listening (view 7):** **Guitar space**, **Residual** and **Synthesised**
-  volume sliders sit beside Song and Notes, so any mix of them can play.
-  Guitar space and the residual are the recording filtered: they keep its own
-  sound, so a voice that guitar notes explain still sounds like the voice.
-  Synthesised is the templates themselves.
+  original (blue). White is where they agree. A menu picks notes only (the
+  default), drums only, or both.
+- **Listening (view 7):** **Guitar space**, **Residual**, **Synth notes** and
+  **Synth drums** volume sliders sit beside Song and Notes, so any mix of them
+  can play.
+  - Guitar space and the residual are the recording filtered: they keep its own
+    sound, so a voice that guitar notes explain still sounds like the voice.
+  - Synth notes is every pitch in guitar space, played with the templates.
+  - Synth drums is the percussive templates.
+
+**Finding:** on the chords-bass-and-drums clip, Synth drums has about 1.4× the
+song's energy and Synth notes about 0.2×. Together they sound like static. The
+projection leans on the broad `mute` template to soak up everything that isn't
+a clean partial, and keeps it on nearly all the time. Fixes to try:
+- percussive templates fitted to the song (step 4);
+- a stronger sparsity for percussive columns;
+- percussive activations that may only spike and decay, not hold.
   - The two are made with `resynthesize` and the soft mask
     `min(1, reconstruction / original)` (`explainedMask` in `dictionary.js`),
     or one minus it, so they add up to the song.
