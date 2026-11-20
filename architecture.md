@@ -14,6 +14,7 @@ Status markers: ✅ built · 🚧 in progress · 📝 planned
 | `index.html` | ✅ / 🚧 | The fretboard. Highlight every position of the notes you choose, colour-coded by note name. Next: play a note file back on the neck. |
 | `extract.html` | 🚧 | The note extractor. Turn audio into a note file. |
 | `tabs.html` | ✅ | The tabs editor. Open a note file or MIDI file, see where each note will be played, and change it. |
+| `debug/arrange.html` | 🚧 | For development: every step inside the arrangement extractor, plotted ([js/extract/arrangement.md](js/extract/arrangement.md#debug-page-debugarrangehtml-)). Not linked from the other pages. |
 
 All are static pages with no build step, hosted on GitHub Pages.
 
@@ -108,6 +109,10 @@ dialog also accepts `.json`. Times are in seconds, relative to the crop start.
 - Notes may have `string` and `fret` (see [js/tabs/README.md](js/tabs/README.md)):
   a position chosen by hand on the tabs page. The tab converter keeps those and
   only chooses positions for notes without them.
+- 📝 Planned fields, from the arrangement extractor
+  ([js/extract/arrangement.md](js/extract/arrangement.md#changes-to-the-note-format)):
+  `technique` (a percussive hit such as a muted-string scratch, with
+  `midi: null`), and `layer` (the layer of the song a note came from).
 - Readers must ignore unknown fields, so new fields (such as `part`) can be
   added without bumping `version`. Bump `version` only for breaking changes.
 
@@ -119,6 +124,7 @@ dialog also accepts `.json`. Times are in seconds, relative to the crop start.
 index.html                 fretboard
 extract.html               note extractor
 tabs.html                  tabs editor
+debug/                     development pages (arrange.html); scripts in js/debug/
 architecture.md            this document
 css/                       style.css (fretboard), extract.css (extractor), tabs.css
 js/

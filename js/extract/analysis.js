@@ -5,8 +5,12 @@ import { midiToName } from './music.js';
 
 const round = (v, places = 3) => (Number.isFinite(v) ? Math.round(v * 10 ** places) / 10 ** places : null);
 
-/** One-line summary of why frames were rejected, or '' if the extractor gives no stats. */
+/**
+ * One-line summary of the extractor's stats, or '' if it gives none. An extractor
+ * can write its own as `stats.summary`; otherwise this reads YIN's frame counts.
+ */
 export function summarizeStats(stats) {
+    if (typeof stats?.summary === 'string') return stats.summary;
     if (!stats?.frames) return '';
     const pct = (k) => Math.round((100 * stats[k]) / stats.frames);
     const parts = [

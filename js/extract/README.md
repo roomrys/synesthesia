@@ -38,7 +38,11 @@ Status markers: ✅ built · 🚧 in progress · 📝 planned
    It can **loop** the time crop and change **speed** (25–150%) without changing
    pitch. For that, the song plays through an `<audio>` element fed from a WAV
    blob built in memory from the clip, using the browser's pitch-preserving
-   playback. The blob is released when the clip is cleared or replaced.
+   playback. The blob is released when the clip is cleared or replaced. Other
+   versions of the song can play alongside it as stems (`setStems`,
+   `setTrackVolume`). They're extra channels of the same WAV, so they stay in
+   step at any speed. The debug page uses them for guitar space and the
+   residual.
 4. The **Timeline** draws the waveform, the notes (in the fretboard's note
    colours) and the playhead. It has two crops: vertical handles set the
    **time** range, and horizontal handles set the **pitch** range (lowest and
@@ -154,7 +158,9 @@ Note = {
   duration: number,        // seconds
   velocity: number,        // 0..1, relative loudness
   confidence?: number,     // 0..1, extractor-specific
-  part?: string,           // 📝 future: instrument / guitar part
+  part?: string,           // instrument or track (the MIDI codec sets it)
+  technique?: string,      // 📝 'mute' | 'slap' | 'tap': a percussive hit, with midi: null
+  layer?: string,          // 📝 the arrangement layer it came from (arrangement.md)
 }
 
 /** Output of an extractor. */
@@ -243,6 +249,7 @@ saves the per-frame numbers as `<name>.analysis.json`. That file contains no aud
 | id | Status | Notes |
 |---|---|---|
 | `yin` | ✅ | Our own YIN implementation. One note at a time; best on a single voice or instrument. |
+| `arrange` | 🚧 | Polyphonic, built from math: explains the song as a mix of guitar sounds and keeps the notes that account for the most at each onset (stage 1 of [arrangement.md](arrangement.md)). Every step is swappable. Gives its own one-line `stats.summary`. |
 | `pitchy` | 📝 | McLeod pitch method via [pitchy](https://github.com/ianprime0509/pitchy) (MIT). |
 | `basic-pitch` | 📝 | Spotify's [Basic Pitch](https://github.com/spotify/basic-pitch-ts) (Apache-2.0). Handles chords; better on full mixes. |
 
@@ -368,8 +375,9 @@ js/extract/
   spectrum.js              FFT, spectrogram, harmonic sum, onsets (pure)
   metadata.js              song and artist guessed from a label (pure)
   capture-worklet.js       AudioWorklet for live sources
-  sources/                 live.js (shared), tab.js, file.js
-  extractors/              index.js (runExtractor), yin.js      (pure)
+  sources/                 live.js (shared), tab.js, file.js; ui.js (source buttons, shared with debug pages)
+  extractors/              index.js (runExtractor), yin.js, arrange.js (pure)
+  arrange/                 the arrangement pipeline's steps (see arrangement.md) (pure)
   voices/                  tone.js
   codecs/                  json.js                              (pure)
   storage/                 folder.js, download.js
@@ -384,7 +392,9 @@ js/extract/
   with the right timing, get a low E with harmonics right (no octave error),
   split a repeated note, ignore silence, respect the range, report progress and
   support cancelling. Every codec must round-trip a `NoteSet`. Every voice must
-  make sound at the scheduled time (rendered offline), including chords.
+  make sound at the scheduled time (rendered offline), including chords. The
+  arrangement pipeline's steps have their own suites (`arrange.test.js`; see
+  [arrangement.md](arrangement.md#tests-)).
 - **End to end:** `page.test.js` loads `extract.html` in an iframe, opens
   generated WAV files, and checks detection, cropping, editing, layers, keeping
   notes for new audio and playback.
@@ -403,7 +413,10 @@ js/extract/
    with snapping, groups and overtone guides, and no detector by default.
 4. 🚧 **More sources and extractors:** mic, pitchy, Basic Pitch. YIN finds one
    note at a time, so chords and full mixes need a polyphonic extractor: Basic
-   Pitch, or a classical one built on the harmonic-sum layer.
+   Pitch, or a classical one built on the harmonic-sum layer. The classical
+   one, `arrange`, is planned in [arrangement.md](arrangement.md). It makes a
+   playable arrangement of the whole song, with every step swappable
+   (instrument, timbre, projection, layers, multiplexer). Its stage 1 is built.
 5. ✅ **MIDI codec:** read and write `.mid` (the tabs page opens them).
 6. 📝 **Parts:** separate notes by instrument or guitar part (`Note.part`).
 7. 📝 **Beat grid:** a tempo and beats estimated from the onsets, to snap to.

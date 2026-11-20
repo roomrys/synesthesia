@@ -1,5 +1,5 @@
-import { test, assert, assertClose } from './runner.js';
-import { findAudibleRange, resample, resampleFast, rms } from '../js/extract/dsp.js';
+import { test, assert, assertClose, assertEqual } from './runner.js';
+import { encodeWav, findAudibleRange, resample, resampleFast, rms } from '../js/extract/dsp.js';
 import { sequence } from './signals.js';
 
 function zeroCrossingHz(x, sr) {
@@ -31,6 +31,23 @@ test('dsp: audible range of silence is null; padding stays inside the clip', () 
     const range = findAudibleRange(x, 48000);
     assertClose(range.start, 0, 1e-9, 'start');
     assertClose(range.end, 1, 1e-9, 'end');
+});
+
+test('dsp: encodeWav writes mono, or one channel per array', async () => {
+    const a = sequence([{ midi: 69, seconds: 0.1 }], 16000);
+    const b = sequence([{ midi: 57, seconds: 0.1 }], 16000);
+    const decode = async (blob) => new OfflineAudioContext(1, 1, 16000).decodeAudioData(await blob.arrayBuffer());
+    const mono = await decode(encodeWav(a, 16000));
+    assertEqual(mono.numberOfChannels, 1, 'mono channels:');
+    const two = await decode(encodeWav([a, b], 16000));
+    assertEqual(two.numberOfChannels, 2, 'channels:');
+    assertEqual(two.length, a.length, 'length:');
+    for (const [c, x] of [[0, a], [1, b]]) {
+        const y = two.getChannelData(c);
+        let err = 0;
+        for (let i = 0; i < x.length; i++) err = Math.max(err, Math.abs(y[i] - x[i]));
+        assert(err < 1e-3, `channel ${c} differs by ${err}`);
+    }
 });
 
 test('dsp: rms of silence is 0', () => {

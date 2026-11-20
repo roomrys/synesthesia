@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Synesthesia · Arrangement debug</title>
+    <link rel="stylesheet" href="../css/extract.css">
+    <link rel="stylesheet" href="../css/debug.css">
+    <link rel="icon" type="image/png" href="../images/favicon.png">
+</head>
+
+<body>
+    <header>
+        <a href="../extract.html" class="back">← Note extractor</a>
+        <h1>Arrangement debug</h1>
+        <span class="tag">development</span>
+    </header>
+
+    <main>
+        <section class="panel">
+            <h2><span class="step">1</span> Audio</h2>
+            <div class="row">
+                <span id="sourceButtons" class="row"></span>
+                <span class="hint">or</span>
+                <label>Test clip <select id="presetSelect"><option value="">—</option></select></label>
+            </div>
+            <div class="row" id="liveControls" hidden>
+                <button id="stopButton" class="primary">Stop</button>
+                <span class="listening"><span class="dot"></span> Listening <span id="elapsed">0:00</span></span>
+                <meter id="level" min="0" max="1" low="0.6" high="0.9" optimum="0.3" value="0"></meter>
+            </div>
+            <p class="hint" id="sourceHint"></p>
+            <div class="row" id="clipRow" hidden>
+                <span id="clipInfo"></span>
+                <button id="clearButton">Clear audio</button>
+            </div>
+            <div class="row transport">
+                <button id="playButton" disabled title="Space">▶ Play</button>
+                <span class="time" id="timeDisplay">0:00.0</span>
+                <label class="check" title="L"><input type="checkbox" id="loopToggle"> Loop crop</label>
+                <label title="- and =">Speed <input type="range" id="speed" min="0.25" max="1.5" step="0.05" value="1">
+                    <output id="speedDisplay" class="time">100%</output></label>
+                <label>Song <input type="range" id="songVolume" min="0" max="1" step="0.01" value="0.8"></label>
+                <label title="Only what the guitar templates explain">Guitar space <input type="range" id="guitarVolume" min="0" max="1" step="0.01" value="0"></label>
+                <label title="Only what the guitar templates don't explain">Residual <input type="range" id="residualVolume" min="0" max="1" step="0.01" value="0"></label>
+                <label title="Every pitch in guitar space, played with the guitar templates as the activations say">Synth notes <input type="range" id="synthNotesVolume" min="0" max="1" step="0.01" value="0"></label>
+                <label title="The percussive templates (mute, slap, tap), played as the activations say">Synth drums <input type="range" id="synthDrumsVolume" min="0" max="1" step="0.01" value="0"></label>
+                <label>Notes <input type="range" id="notesVolume" min="0" max="1" step="0.01" value="0.6"></label>
+                <label class="check"><input type="checkbox" id="followPlayhead" checked> Follow</label>
+            </div>
+            <div class="row">
+                <span>Time <span class="time" id="cropDisplay">–</span></span>
+                <button id="cropStartButton" disabled title="[">Start here</button>
+                <button id="cropEndButton" disabled title="]">End here</button>
+                <button id="cropFitButton" disabled title="Crop to where the audio starts and ends">Fit to audio</button>
+                <button id="cropResetButton" disabled title="The whole clip">Reset</button>
+                <span class="divider"></span>
+                <span>Notes <span class="time" id="pitchDisplay">–</span></span>
+                <button id="pitchFitButton" disabled>Fit to notes</button>
+            </div>
+            <p class="status" id="audioStatus" role="status"></p>
+        </section>
+
+        <section class="panel">
+            <h2><span class="step">2</span> Pipeline</h2>
+            <div class="steps" id="steps"></div>
+            <div class="row">
+                <button id="runButton" class="primary" disabled>Run</button>
+                <label class="check"><input type="checkbox" id="autoRun" checked> Re-run when something changes</label>
+                <button id="resetButton">Reset to defaults</button>
+                <progress id="progress" max="1" value="0" hidden></progress>
+            </div>
+            <p class="status" id="runStatus" role="status"></p>
+            <p class="hint" id="timings"></p>
+        </section>
+
+        <section class="panel views">
+            <h2><span class="step">3</span> Inside the pipeline</h2>
+            <div class="row">
+                <label class="check"><input type="checkbox" data-view="original" checked> Spectrogram</label>
+                <label class="check"><input type="checkbox" data-view="reconstruction" checked> Reconstruction</label>
+                <label class="check"><input type="checkbox" data-view="residual" checked> Residual</label>
+                <label class="check"><input type="checkbox" data-view="activations" checked> Activations</label>
+                <label class="check"><input type="checkbox" data-view="synth" checked> Synthesised</label>
+                <select id="synthViewSelect" title="What the synthesised view shows">
+                    <option value="notes">notes</option>
+                    <option value="all">notes and drums</option>
+                    <option value="drums">drums</option>
+                </select>
+                <label class="check"><input type="checkbox" data-view="slice" checked> Frame slice</label>
+                <span class="divider"></span>
+                <label>Range <input type="range" id="rangeDb" min="20" max="120" step="5" value="70">
+                    <output id="rangeDisplay" class="time">70 dB</output></label>
+                <button id="fitButton">Show all</button>
+            </div>
+            <div id="plots"></div>
+            <p class="hint readout" id="readout">&nbsp;</p>
+            <div class="slice-row" id="sliceRow">
+                <canvas id="sliceCanvas"></canvas>
+                <div class="legend" id="sliceLegend"></div>
+            </div>
+            <p class="hint">Scroll to zoom, drag to pan, click to move the playhead (the frame slice shows that
+                moment); drag the playhead to scrub. Drag the yellow handles to crop: the vertical ones set the time,
+                the horizontal ones on the activations set the lowest and highest notes kept (notes outside are
+                dimmed and not played). <kbd>[</kbd> and <kbd>]</kbd> set the time crop at the playhead,
+                <kbd>Space</kbd> plays and pauses, <kbd>L</kbd> toggles looping, <kbd>-</kbd> and <kbd>=</kbd>
+                change speed.
+                <b>Residual</b>: orange is sound the templates don't explain, blue is sound they add that isn't
+                there. <b>Activations</b>: one row per template (percussive sounds at the top); white outlines are
+                candidates, filled boxes are the notes kept, blue ticks are onsets. <b>Synthesised</b>: the spectrogram
+                of the templates played as the activations say (red) over the original (blue); white is where they
+                agree.</p>
+        </section>
+
+        <p class="privacy">Audio stays in this page's memory and is never saved or uploaded.</p>
+    </main>
+
+    <script type="module" src="../js/debug/arrange.js"></script>
+</body>
+
+</html>

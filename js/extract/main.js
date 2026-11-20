@@ -10,6 +10,7 @@ import { Player } from './player.js';
 import { Timeline } from './timeline.js';
 import { computeLayers } from './spectrum.js';
 import { guessSongInfo } from './metadata.js';
+import { sourceButtons, sourceHint, liveError } from './sources/ui.js';
 
 const MAX_LISTEN_SECONDS = 20 * 60;
 const DETECT_RANGE = { min: 33, max: 100 };   // A1..E7: detection always covers this
@@ -215,33 +216,8 @@ function setCrop(start, end, { fromTimeline = false } = {}) {
 
 async function setupSources() {
     const sources = await loadAll('source', config);
-    for (const source of sources) {
-        const button = document.createElement('button');
-        button.textContent = source.startLabel ?? source.name;
-        if (source.kind === 'live') {
-            button.addEventListener('click', () => startLive(source));
-        } else {
-            const input = Object.assign(document.createElement('input'), { type: 'file', accept: source.accept ?? '', hidden: true });
-            input.addEventListener('change', () => {
-                if (input.files[0]) openFile(source, input.files[0]);
-                input.value = '';
-            });
-            button.addEventListener('click', () => input.click());
-            el.sourceButtons.append(input);
-        }
-        el.sourceButtons.append(button);
-    }
-    const tab = sources.find((s) => s.id === 'tab');
-    el.sourceHint.textContent = tab ? tab.hint : '';
-    // Say why a configured source is missing, instead of hiding it silently.
-    if (!tab && config.sources.includes('tab')) {
-        el.sourceHint.textContent = window.isSecureContext
-            ? 'Listening to a tab needs Chrome or Edge on a computer.'
-            : 'Listening to a tab only works on https or localhost. Open this page at http://localhost:8000/extract.html.';
-    } else if (!tab && !config.sources.includes('tab') && /[?&]sources=/.test(location.search)) {
-        el.sourceHint.textContent = 'Only some audio sources are on, because the address sets “sources”. '
-            + 'Remove it from the address to listen to a tab.';
-    }
+    el.sourceButtons.append(...sourceButtons(sources, { onLive: startLive, onFile: openFile }));
+    el.sourceHint.textContent = sourceHint(sources, config);
     if (!sources.length) setStatus(el.audioStatus, 'None of the configured audio sources work in this browser.', 'error');
 }
 
@@ -261,8 +237,8 @@ async function startLive(source) {
         el.elapsed.textContent = '0:00';
         refresh();
     } catch (err) {
-        if (err.name === 'NotAllowedError' || err.name === 'AbortError') setStatus(el.audioStatus, 'Sharing was cancelled.');
-        else setStatus(el.audioStatus, err.message, 'error');
+        const { cancelled, message } = liveError(err);
+        setStatus(el.audioStatus, message, cancelled ? '' : 'error');
     }
 }
 
